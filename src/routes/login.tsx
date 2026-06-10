@@ -1,15 +1,23 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
+import { z } from 'zod'
 import { userLogin } from '@/lib/auth.functions'
 
-export const Route = createFileRoute('/login')({ component: LoginPage })
+export const Route = createFileRoute('/login')({
+  validateSearch: z.object({ redirectTo: z.string().optional() }),
+  component: LoginPage,
+})
 
 function LoginPage() {
   const router = useRouter()
+  const { redirectTo } = Route.useSearch()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Only follow redirectTo if it's a relative path — prevents open-redirect attacks
+  const destination = redirectTo?.startsWith('/') ? redirectTo : '/'
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -17,7 +25,7 @@ function LoginPage() {
     setError(null)
     try {
       await userLogin({ data: { email, password } })
-      await router.navigate({ to: '/' })
+      await router.navigate({ href: destination })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {

@@ -55,7 +55,7 @@ export const runOnboardingChat = createServerFn({ method: 'POST' })
   .validator((input: {
     clientId: string
     messages: { role: 'user' | 'assistant'; content: string }[]
-    crawlData: object
+    crawlData: { [key: string]: JsonValue }
   }) => input)
   .handler(async ({ data }) => {
     const { messages, crawlData } = data
@@ -92,7 +92,7 @@ export const runOnboardingChat = createServerFn({ method: 'POST' })
 export const generateProfile = createServerFn({ method: 'POST' })
   .validator((input: {
     clientId: string
-    crawlData: object
+    crawlData: { [key: string]: JsonValue }
     questionnaireAnswers: string
   }) => input)
   .handler(async ({ data }) => {

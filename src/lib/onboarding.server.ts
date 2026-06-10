@@ -5,11 +5,15 @@ import { z } from 'zod'
 import { supabaseAdmin } from '@/integrations/supabase/client.server'
 import { userSessionConfig } from './auth.functions'
 
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
 export const getOnboardingData = createServerFn({ method: 'GET' })
   .validator((input: unknown) => z.object({ clientId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
     const session = await useSession<{ userId?: string }>(userSessionConfig())
-    if (!session.data.userId) throw redirect({ to: '/login' })
+    if (!session.data.userId) {
+      throw redirect({ to: '/login', search: { redirectTo: `/onboarding/${data.clientId}` } })
+    }
 
     const { data: client, error } = await supabaseAdmin
       .from('clients')
@@ -38,6 +42,6 @@ export const getOnboardingData = createServerFn({ method: 'GET' })
         user_id: string
         status: string
       },
-      crawlData: (profile?.crawl_data ?? {}) as object,
+      crawlData: (profile?.crawl_data ?? {}) as { [key: string]: JsonValue },
     }
   })
