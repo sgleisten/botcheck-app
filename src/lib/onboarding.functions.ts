@@ -2,6 +2,9 @@ import { createServerFn } from '@tanstack/react-start'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 
+type JsonPrimitive = string | number | boolean | null
+type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const supabase = createClient(
@@ -129,7 +132,7 @@ ${questionnaireAnswers}`,
 
     let parsed: {
       llms_txt: string
-      tools_json: unknown[]
+      tools_json: { [key: string]: JsonValue }[]
       robots_txt_additions: string
     }
 

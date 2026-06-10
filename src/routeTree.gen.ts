@@ -9,12 +9,42 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as OnboardingStatusRouteImport } from './routes/onboarding/status'
+import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$clientId'
+import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingStatusRoute = OnboardingStatusRouteImport.update({
+  id: '/onboarding/status',
+  path: '/onboarding/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingClientIdRoute = OnboardingClientIdRouteImport.update({
+  id: '/onboarding/$clientId',
+  path: '/onboarding/$clientId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminLoginRoute = AdminLoginRouteImport.update({
+  id: '/admin/login',
+  path: '/admin/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
@@ -25,37 +55,114 @@ const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/admin/login': typeof AdminLoginRoute
+  '/onboarding/$clientId': typeof OnboardingClientIdRoute
+  '/onboarding/status': typeof OnboardingStatusRoute
+  '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/admin/login': typeof AdminLoginRoute
+  '/onboarding/$clientId': typeof OnboardingClientIdRoute
+  '/onboarding/status': typeof OnboardingStatusRoute
+  '/admin': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/admin/login': typeof AdminLoginRoute
+  '/onboarding/$clientId': typeof OnboardingClientIdRoute
+  '/onboarding/status': typeof OnboardingStatusRoute
+  '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/webhooks/stripe'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/admin/login'
+    | '/onboarding/$clientId'
+    | '/onboarding/status'
+    | '/admin/'
+    | '/api/webhooks/stripe'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/webhooks/stripe'
-  id: '__root__' | '/' | '/api/webhooks/stripe'
+  to:
+    | '/'
+    | '/login'
+    | '/admin/login'
+    | '/onboarding/$clientId'
+    | '/onboarding/status'
+    | '/admin'
+    | '/api/webhooks/stripe'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/admin/login'
+    | '/onboarding/$clientId'
+    | '/onboarding/status'
+    | '/admin/'
+    | '/api/webhooks/stripe'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LoginRoute: typeof LoginRoute
+  AdminLoginRoute: typeof AdminLoginRoute
+  OnboardingClientIdRoute: typeof OnboardingClientIdRoute
+  OnboardingStatusRoute: typeof OnboardingStatusRoute
+  AdminIndexRoute: typeof AdminIndexRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding/status': {
+      id: '/onboarding/status'
+      path: '/onboarding/status'
+      fullPath: '/onboarding/status'
+      preLoaderRoute: typeof OnboardingStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding/$clientId': {
+      id: '/onboarding/$clientId'
+      path: '/onboarding/$clientId'
+      fullPath: '/onboarding/$clientId'
+      preLoaderRoute: typeof OnboardingClientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/login': {
+      id: '/admin/login'
+      path: '/admin/login'
+      fullPath: '/admin/login'
+      preLoaderRoute: typeof AdminLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/webhooks/stripe': {
@@ -70,6 +177,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LoginRoute: LoginRoute,
+  AdminLoginRoute: AdminLoginRoute,
+  OnboardingClientIdRoute: OnboardingClientIdRoute,
+  OnboardingStatusRoute: OnboardingStatusRoute,
+  AdminIndexRoute: AdminIndexRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
 }
 export const routeTree = rootRouteImport
