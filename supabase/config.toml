@@ -1,0 +1,8 @@
+# BotCheck Supabase project: mbqpbtrmodglklfofwlz
+# See docs/DEPLOY.md for deploy and cron setup.
+
+[functions.serve-profile]
+verify_jwt = false
+
+[functions.weekly-monitor]
+verify_jwt = false

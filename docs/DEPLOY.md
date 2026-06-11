@@ -38,7 +38,7 @@ In Vercel → your project → **Settings** → **Environment Variables**, add e
 | `STRIPE_PRICE_ID_STARTER` | Live $299/mo price ID |
 | `RESEND_API_KEY` | Transactional email |
 | `ADMIN_EMAIL` | **Your inbox** — e.g. `sam@aieducators.ai` — for “profile ready for review” alerts |
-| `APP_URL` | `https://botcheck-app.vercel.app` (or your custom domain) |
+| `APP_URL` | `https://app.botcheck.io` |
 | `EMAIL_FROM` | Optional — default `BotCheck <notifications@botcheck.io>` |
 
 After adding or changing env vars, go to **Deployments** → ⋮ on the latest deploy → **Redeploy**.
@@ -58,7 +58,7 @@ The app reads this when someone finishes onboarding — you get an email pointin
 ## 3. Stripe webhook (production)
 
 1. Stripe Dashboard → Developers → Webhooks → Add endpoint
-2. URL: `https://botcheck-app.vercel.app/api/webhooks/stripe` (or your custom domain)
+2. URL: `https://app.botcheck.io/api/webhooks/stripe`
 3. Events: `checkout.session.completed`, `invoice.paid`, `customer.subscription.deleted`, `invoice.payment_failed`
 4. Copy signing secret → `STRIPE_WEBHOOK_SECRET` on Vercel
 5. Redeploy after updating env vars
@@ -75,7 +75,7 @@ supabase functions deploy weekly-monitor --project-ref mbqpbtrmodglklfofwlz
 Set secrets on Supabase for `weekly-monitor`:
 
 ```bash
-supabase secrets set FIRECRAWL_API_KEY=... ANTHROPIC_API_KEY=... RESEND_API_KEY=... ADMIN_EMAIL=... APP_URL=https://botcheck-app.vercel.app CRON_SECRET=...
+supabase secrets set FIRECRAWL_API_KEY=... ANTHROPIC_API_KEY=... RESEND_API_KEY=... ADMIN_EMAIL=sam@aieducators.ai APP_URL=https://app.botcheck.io CRON_SECRET=...
 ```
 
 Schedule weekly monitor (Supabase Dashboard → Edge Functions → Cron):
@@ -88,16 +88,19 @@ Schedule weekly monitor (Supabase Dashboard → Edge Functions → Cron):
 
 Invoke with header: `Authorization: Bearer {CRON_SECRET}`
 
-## 5. DNS (optional custom domain)
+## 5. Custom domain (app.botcheck.io)
 
-Point `app.botcheck.io` (or your domain) to Vercel per Vercel domain settings. Update `APP_URL` and the Stripe webhook URL to match.
+1. Vercel project → **Domains** → add `app.botcheck.io`
+2. Add the DNS record Vercel provides (typically CNAME → `cname.vercel-dns.com`)
+3. Wait for SSL provisioning
+4. Ensure `APP_URL=https://app.botcheck.io` and Stripe webhook URL match
 
-Profile files are served from Supabase edge function URL configured for `/sites/*` — ensure your Supabase function URL or reverse proxy matches production routing.
+Profile files are served by the TanStack app at `/sites/{clientId}/llms.txt` and `/sites/{clientId}/tools.json` (`src/routes/sites/$clientId/$filename.ts`). The Supabase `serve-profile` edge function is a legacy alternate; production emails link to `APP_URL/sites/...`.
 
 ## 6. Post-deploy smoke test
 
 ```bash
-APP_URL=https://botcheck-app.vercel.app node scripts/verify-funnel.mjs
+APP_URL=https://app.botcheck.io node scripts/verify-funnel.mjs
 ```
 
 1. Free scan on production homepage

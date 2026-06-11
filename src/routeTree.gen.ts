@@ -17,6 +17,7 @@ import { Route as OnboardingStatusRouteImport } from './routes/onboarding/status
 import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$clientId'
 import { Route as CheckoutTokenRouteImport } from './routes/checkout/$token'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
+import { Route as SitesClientIdFilenameRouteImport } from './routes/sites/$clientId/$filename'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
 
 const LoginRoute = LoginRouteImport.update({
@@ -59,6 +60,11 @@ const AdminLoginRoute = AdminLoginRouteImport.update({
   path: '/admin/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SitesClientIdFilenameRoute = SitesClientIdFilenameRouteImport.update({
+  id: '/sites/$clientId/$filename',
+  path: '/sites/$clientId/$filename',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
   id: '/api/webhooks/stripe',
   path: '/api/webhooks/stripe',
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +93,7 @@ export interface FileRoutesByTo {
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +106,7 @@ export interface FileRoutesById {
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +120,7 @@ export interface FileRouteTypes {
     | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
+    | '/sites/$clientId/$filename'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +132,7 @@ export interface FileRouteTypes {
     | '/report/$scanId'
     | '/admin'
     | '/api/webhooks/stripe'
+    | '/sites/$clientId/$filename'
   id:
     | '__root__'
     | '/'
@@ -133,6 +144,7 @@ export interface FileRouteTypes {
     | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
+    | '/sites/$clientId/$filename'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +157,7 @@ export interface RootRouteChildren {
   ReportScanIdRoute: typeof ReportScanIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
+  SitesClientIdFilenameRoute: typeof SitesClientIdFilenameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -205,6 +218,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sites/$clientId/$filename': {
+      id: '/sites/$clientId/$filename'
+      path: '/sites/$clientId/$filename'
+      fullPath: '/sites/$clientId/$filename'
+      preLoaderRoute: typeof SitesClientIdFilenameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/stripe': {
       id: '/api/webhooks/stripe'
       path: '/api/webhooks/stripe'
@@ -225,6 +245,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReportScanIdRoute: ReportScanIdRoute,
   AdminIndexRoute: AdminIndexRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
+  SitesClientIdFilenameRoute: SitesClientIdFilenameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
