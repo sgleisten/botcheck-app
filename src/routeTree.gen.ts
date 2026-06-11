@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as ReportScanIdRouteImport } from './routes/report/$scanId'
 import { Route as OnboardingStatusRouteImport } from './routes/onboarding/status'
 import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$clientId'
 import { Route as CheckoutTokenRouteImport } from './routes/checkout/$token'
@@ -31,6 +32,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportScanIdRoute = ReportScanIdRouteImport.update({
+  id: '/report/$scanId',
+  path: '/report/$scanId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingStatusRoute = OnboardingStatusRouteImport.update({
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
+  '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
@@ -76,6 +83,7 @@ export interface FileRoutesByTo {
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
+  '/report/$scanId': typeof ReportScanIdRoute
   '/admin': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
@@ -87,6 +95,7 @@ export interface FileRoutesById {
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
+  '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
 }
@@ -99,6 +108,7 @@ export interface FileRouteTypes {
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
+    | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
   fileRoutesByTo: FileRoutesByTo
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
+    | '/report/$scanId'
     | '/admin'
     | '/api/webhooks/stripe'
   id:
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
+    | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
   fileRoutesById: FileRoutesById
@@ -130,6 +142,7 @@ export interface RootRouteChildren {
   CheckoutTokenRoute: typeof CheckoutTokenRoute
   OnboardingClientIdRoute: typeof OnboardingClientIdRoute
   OnboardingStatusRoute: typeof OnboardingStatusRoute
+  ReportScanIdRoute: typeof ReportScanIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
 }
@@ -155,6 +168,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/report/$scanId': {
+      id: '/report/$scanId'
+      path: '/report/$scanId'
+      fullPath: '/report/$scanId'
+      preLoaderRoute: typeof ReportScanIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding/status': {
@@ -202,6 +222,7 @@ const rootRouteChildren: RootRouteChildren = {
   CheckoutTokenRoute: CheckoutTokenRoute,
   OnboardingClientIdRoute: OnboardingClientIdRoute,
   OnboardingStatusRoute: OnboardingStatusRoute,
+  ReportScanIdRoute: ReportScanIdRoute,
   AdminIndexRoute: AdminIndexRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
 }

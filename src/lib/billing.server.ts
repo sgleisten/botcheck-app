@@ -16,8 +16,37 @@ export type ClientBilling = {
   status: string
 }
 
+export const STARTER_MONTHLY_CENTS = 29900
+
 export function generateCheckoutToken(): string {
   return randomBytes(24).toString('base64url')
+}
+
+function isPlaceholderEnv(value: string | undefined): boolean {
+  if (!value?.trim()) return true
+  const v = value.trim().toLowerCase()
+  return v.startsWith('your-') || v.includes('placeholder') || v === 'changeme'
+}
+
+export function getStarterStripePriceId(): string | null {
+  const value = process.env.STRIPE_PRICE_ID_STARTER?.trim()
+  if (isPlaceholderEnv(value)) return null
+  return value ?? null
+}
+
+function starterLineItem(domain: string): Stripe.Checkout.SessionCreateParams.LineItem {
+  return {
+    price_data: {
+      currency: 'usd',
+      product_data: {
+        name: `BotCheck — ${domain}`,
+        description: 'AI presence profile, hosting, and weekly updates',
+      },
+      unit_amount: STARTER_MONTHLY_CENTS,
+      recurring: { interval: 'month' },
+    },
+    quantity: 1,
+  }
 }
 
 export function resolveCheckoutLineItems(
@@ -44,9 +73,10 @@ export function resolveCheckoutLineItems(
     ]
   }
 
-  const defaultPrice = process.env.STRIPE_PRICE_ID_STARTER
-  if (!defaultPrice) throw new Error('STRIPE_PRICE_ID_STARTER is not configured')
-  return [{ price: defaultPrice, quantity: 1 }]
+  const defaultPrice = getStarterStripePriceId()
+  if (defaultPrice) return [{ price: defaultPrice, quantity: 1 }]
+
+  return [starterLineItem(client.domain)]
 }
 
 export function appBaseUrl(): string {

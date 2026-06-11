@@ -91,6 +91,45 @@ export type ProfileLiveEmail = {
   businessName: string | null
 }
 
+export type ScanTeaserEmail = {
+  email: string
+  scanId: string
+  url: string
+  arsScore: number
+  topFailure: string | null
+}
+
+export async function sendScanTeaserEmail(data: ScanTeaserEmail): Promise<void> {
+  const domain = (() => {
+    try {
+      return new URL(data.url).hostname
+    } catch {
+      return data.url
+    }
+  })()
+
+  const reportUrl = `${appUrl()}/report/${data.scanId}`
+  const teaser =
+    data.topFailure ??
+    'AI agents may be sending your customers elsewhere because they cannot read your site clearly.'
+
+  await sendEmail(
+    data.email,
+    `Your Agent Readiness Score: ${data.arsScore}/100 — ${domain}`,
+    `
+      <p>Your BotCheck scan for <strong>${domain}</strong> is in.</p>
+      <p style="font-size: 28px; font-weight: bold; margin: 16px 0;">${data.arsScore}/100</p>
+      <p style="color: #666; margin-top: 0;">Agent Readiness Score</p>
+      <p><strong>One thing we found:</strong> ${teaser}</p>
+      <p>Your <strong>full report</strong> — every failure, quick wins, and a live before/after of what AI tells your customers — is waiting for you.</p>
+      <p><a href="${reportUrl}" style="font-weight: bold;">See your full report →</a></p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+      <p>Want us to handle it? BotCheck builds your AI profile, hosts it, and updates it weekly — <strong>$299/mo</strong>, no tech skills needed.</p>
+      <p><a href="${reportUrl}#fix">Fix this for me →</a></p>
+    `,
+  )
+}
+
 export async function sendProfileLiveEmail(data: ProfileLiveEmail): Promise<void> {
   const business = data.businessName ?? data.domain
   const profileBase = `${appUrl()}/sites/${data.clientId}`

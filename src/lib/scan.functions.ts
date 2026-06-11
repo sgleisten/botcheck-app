@@ -14,6 +14,7 @@ const emailSchema = z.object({
 })
 
 type Category = { score: number; finding: string }
+type BeforeAfter = { ai_now: string; ai_with_botcheck: string }
 type ScanResult = {
   id: string
   url: string
@@ -26,7 +27,10 @@ type ScanResult = {
   }
   top_failures: string[]
   quick_wins: string[]
+  before_after: BeforeAfter
 }
+
+export type ScanResultWithEmail = ScanResult & { email: string | null }
 
 const SUBPAGE_KEYWORDS = ['/book', '/contact', '/pricing', '/services', '/appointment', '/rates']
 
@@ -134,7 +138,11 @@ Return ONLY valid JSON, no other text:
   "quick_wins": [
     "plain English description of quick fix 1",
     "plain English description of quick fix 2"
-  ]
+  ],
+  "before_after": {
+    "ai_now": "2-4 sentences: what an AI assistant would tell a customer asking about this business RIGHT NOW based on the website — include specific wrong or missing details (e.g. wrong pricing guess, can't find booking, vague hours). Write as if quoting the AI's answer.",
+    "ai_with_botcheck": "2-4 sentences: what the same AI would tell that customer WITH an accurate BotCheck profile — correct booking path, pricing, hours, services. Same conversational tone, but accurate and helpful."
+  }
 }`
 
     // 4. Call Claude via SDK
@@ -161,6 +169,17 @@ Return ONLY valid JSON, no other text:
       parsed = JSON.parse(match[0])
     }
 
+    if (!parsed.before_after?.ai_now || !parsed.before_after?.ai_with_botcheck) {
+      parsed.before_after = {
+        ai_now:
+          parsed.before_after?.ai_now ??
+          'Based on your website, an AI agent would struggle to give accurate booking or pricing details — and may send customers to a competitor instead.',
+        ai_with_botcheck:
+          parsed.before_after?.ai_with_botcheck ??
+          'With a BotCheck profile, the same AI could give accurate booking links, current pricing, hours, and services — so customers reach you, not a guess.',
+      }
+    }
+
     // 5. Store in DB
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
     const { data: inserted, error } = await supabaseAdmin
@@ -171,6 +190,7 @@ Return ONLY valid JSON, no other text:
         categories: parsed.categories,
         top_failures: parsed.top_failures,
         quick_wins: parsed.quick_wins,
+        diff: parsed.before_after,
       })
       .select('id')
       .single()
@@ -186,12 +206,66 @@ export const saveEmail = createServerFn({ method: 'POST' })
   .validator((input: unknown) => emailSchema.parse(input))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
+    const { sendScanTeaserEmail } = await import('@/lib/email.server')
+
+    const { data: scan, error: fetchError } = await supabaseAdmin
+      .from('scans')
+      .select('url, ars_score, top_failures')
+      .eq('id', data.scanId)
+      .single()
+
+    if (fetchError || !scan) throw new Error(fetchError?.message ?? 'Scan not found')
+
     const { error } = await supabaseAdmin
       .from('scans')
       .update({ email: data.email })
       .eq('id', data.scanId)
     if (error) throw new Error(error.message)
+
+    try {
+      const topFailures = (scan.top_failures as string[]) ?? []
+      await sendScanTeaserEmail({
+        email: data.email,
+        scanId: data.scanId,
+        url: scan.url,
+        arsScore: scan.ars_score ?? 0,
+        topFailure: topFailures[0] ?? null,
+      })
+    } catch (err) {
+      console.error('[email] Scan teaser email error:', err)
+    }
+
     return { ok: true }
+  })
+
+const scanIdSchema = z.object({ scanId: z.string().uuid() })
+
+export const getScanById = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => scanIdSchema.parse(input))
+  .handler(async ({ data }): Promise<ScanResultWithEmail | null> => {
+    const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
+    const { data: scan, error } = await supabaseAdmin
+      .from('scans')
+      .select('id, url, ars_score, categories, top_failures, quick_wins, diff, email')
+      .eq('id', data.scanId)
+      .single()
+
+    if (error || !scan) return null
+
+    const diff = scan.diff as BeforeAfter | null
+    return {
+      id: scan.id,
+      url: scan.url,
+      ars_score: scan.ars_score ?? 0,
+      categories: scan.categories as ScanResult['categories'],
+      top_failures: (scan.top_failures as string[]) ?? [],
+      quick_wins: (scan.quick_wins as string[]) ?? [],
+      before_after: diff ?? {
+        ai_now: 'Based on your website, an AI agent would struggle to give accurate details.',
+        ai_with_botcheck: 'With BotCheck, the same AI could give accurate booking, pricing, and hours.',
+      },
+      email: scan.email as string | null,
+    }
   })
 
 const checkoutSchema = z.object({

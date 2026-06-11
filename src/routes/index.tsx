@@ -1,19 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { runScan, saveEmail, createCheckoutSession } from '@/lib/scan.functions'
-import {
-  CATEGORY_QUESTIONS,
-  scoreHeadline,
-  type SiteScan,
-} from '@/lib/site-scan'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Section } from '@/components/ui/Section'
-import { ScoreRing } from '@/components/ui/ScoreRing'
-import { CategoryCard } from '@/components/ui/CategoryCard'
 import { RobotImage } from '@/components/ui/RobotImage'
 import { SiteFooter } from '@/components/ui/SiteFooter'
 import { SiteHeader } from '@/components/ui/SiteHeader'
+import { ScanResultsView } from '@/components/scan/ScanResultsView'
 
 export const Route = createFileRoute('/')({ component: ScanPage })
 
@@ -26,6 +20,9 @@ type ScanState =
 function ScanPage() {
   const [url, setUrl] = useState('')
   const [email, setEmail] = useState('')
+  const [reportUnlocked, setReportUnlocked] = useState(false)
+  const [unlockLoading, setUnlockLoading] = useState(false)
+  const [unlockError, setUnlockError] = useState<string | null>(null)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [scan, setScan] = useState<ScanState>({ status: 'idle' })
@@ -35,6 +32,8 @@ function ScanPage() {
     const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`
     setScan({ status: 'scanning' })
     setCheckoutError(null)
+    setUnlockError(null)
+    setReportUnlocked(false)
     try {
       const result = await runScan({ data: { url: normalized } })
       setScan({ status: 'done', result })
@@ -43,13 +42,27 @@ function ScanPage() {
     }
   }
 
-  async function handleCheckout(e: React.FormEvent) {
+  async function handleUnlockReport(e: React.FormEvent) {
     e.preventDefault()
     if (scan.status !== 'done') return
+    setUnlockLoading(true)
+    setUnlockError(null)
+    try {
+      await saveEmail({ data: { scanId: scan.result.id, email } })
+      setReportUnlocked(true)
+    } catch (err) {
+      setUnlockError(err instanceof Error ? err.message : 'Could not save your email. Please try again.')
+    } finally {
+      setUnlockLoading(false)
+    }
+  }
+
+  async function handleCheckout(e: React.FormEvent) {
+    e.preventDefault()
+    if (scan.status !== 'done' || !reportUnlocked) return
     setCheckoutLoading(true)
     setCheckoutError(null)
     try {
-      await saveEmail({ data: { scanId: scan.result.id, email } })
       const { url: checkoutUrl } = await createCheckoutSession({
         data: { scanId: scan.result.id, email, domain: scan.result.url },
       })
@@ -66,6 +79,10 @@ function ScanPage() {
         result={scan.result}
         email={email}
         setEmail={setEmail}
+        reportUnlocked={reportUnlocked}
+        unlockLoading={unlockLoading}
+        unlockError={unlockError}
+        onUnlockReport={handleUnlockReport}
         checkoutLoading={checkoutLoading}
         checkoutError={checkoutError}
         onCheckout={handleCheckout}
@@ -226,165 +243,6 @@ function ScanPage() {
             <Button type="submit" variant="orange" size="lg" className="shrink-0">
               Run my BotCheck →
             </Button>
-          </form>
-        </div>
-      </Section>
-
-      <SiteFooter />
-    </div>
-  )
-}
-
-function ScanResultsView({
-  result,
-  email,
-  setEmail,
-  checkoutLoading,
-  checkoutError,
-  onCheckout,
-}: {
-  result: Awaited<ReturnType<typeof runScan>>
-  email: string
-  setEmail: (v: string) => void
-  checkoutLoading: boolean
-  checkoutError: string | null
-  onCheckout: (e: React.FormEvent) => void
-}) {
-  const { categories } = result
-  const domain = (() => {
-    try {
-      return new URL(result.url).hostname
-    } catch {
-      return result.url
-    }
-  })()
-
-  return (
-    <div className="min-h-screen bg-cream">
-      <SiteHeader />
-
-      <Section tone="cream" className="!py-12 md:!py-16 text-center">
-        <p className="section-label">BotCheck complete</p>
-        <p className="text-sm text-teal/55 mt-2">{domain}</p>
-
-        <div className="mt-8 flex justify-center">
-          <ScoreRing score={result.ars_score} size={200} />
-        </div>
-        <p className="text-sm font-medium text-teal/60 mt-5">Agent Readiness Score</p>
-
-        <h1 className="text-3xl md:text-4xl font-extrabold text-teal mt-6 max-w-2xl mx-auto leading-tight">
-          {scoreHeadline(result.ars_score)}
-        </h1>
-      </Section>
-
-      <Section tone="cream" className="!py-8 !pt-0">
-        <div className="grid sm:grid-cols-2 gap-5">
-          {(
-            Object.entries(categories) as [
-              keyof typeof CATEGORY_QUESTIONS,
-              SiteScan['categories'][keyof SiteScan['categories']],
-            ][]
-          ).map(([key, cat]) => (
-            <CategoryCard
-              key={key}
-              question={CATEGORY_QUESTIONS[key]}
-              score={cat.score}
-              finding={cat.finding}
-            />
-          ))}
-        </div>
-      </Section>
-
-      <Section tone="teal" className="!py-14">
-        <div className="flex items-center gap-3 mb-8">
-          <RobotImage
-            src="/images/robot-maze.png"
-            alt=""
-            className="w-12 h-12 object-contain"
-            fallback="🤖"
-          />
-          <h2 className="text-2xl font-extrabold text-cream">Where the robots are getting lost</h2>
-        </div>
-        <ul className="space-y-3 max-w-3xl">
-          {result.top_failures.map((issue, i) => (
-            <li
-              key={i}
-              className="rounded-lg bg-cream/95 border border-coral/30 text-teal px-5 py-4 text-sm leading-relaxed flex gap-3"
-            >
-              <span className="text-coral shrink-0 font-bold mt-0.5">●</span>
-              {issue}
-            </li>
-          ))}
-        </ul>
-      </Section>
-
-      <Section tone="orange" className="!py-14">
-        <div className="flex items-center gap-3 mb-8">
-          <RobotImage
-            src="/images/robot-check.png"
-            alt=""
-            className="w-12 h-12 object-contain"
-            fallback="✅"
-          />
-          <h2 className="text-2xl font-extrabold text-teal">Quick fixes to help the robots</h2>
-        </div>
-        <ul className="space-y-3 max-w-3xl">
-          {result.quick_wins.map((win, i) => (
-            <li
-              key={i}
-              className="rounded-lg bg-cream border border-teal/15 card-elevated px-5 py-4 text-sm text-teal leading-relaxed flex gap-3"
-            >
-              <span className="text-green shrink-0 font-bold">✓</span>
-              {win}
-            </li>
-          ))}
-        </ul>
-      </Section>
-
-      <Section tone="teal" className="!py-16">
-        <div className="max-w-xl mx-auto text-center">
-          <p className="section-label text-cream/50 mb-3">Next step</p>
-          <h2 className="text-3xl font-extrabold text-orange mb-3">We fix this for you</h2>
-          <p className="text-cream/75 mb-8 leading-relaxed">
-            $299/mo — we build your AI profile, host it, and update it every week as your site
-            changes. No tech skills needed.
-          </p>
-
-          <form onSubmit={onCheckout} className="space-y-4 text-left">
-            <div>
-              <label htmlFor="checkout-email" className="block text-sm text-cream/70 mb-1.5">
-                Work email
-              </label>
-              <input
-                id="checkout-email"
-                type="email"
-                required
-                placeholder="you@yourbusiness.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input-field !border-cream/20"
-              />
-            </div>
-
-            {checkoutError && (
-              <p className="rounded-md border border-coral/50 bg-coral/10 p-3 text-sm text-coral">
-                {checkoutError}
-              </p>
-            )}
-
-            <Button
-              type="submit"
-              variant="orange"
-              size="lg"
-              className="w-full"
-              disabled={checkoutLoading}
-            >
-              {checkoutLoading ? 'Redirecting to checkout…' : 'Fix this for me — $299/mo →'}
-            </Button>
-
-            <p className="text-center text-xs text-cream/45">
-              Secure checkout via Stripe · Cancel anytime
-            </p>
           </form>
         </div>
       </Section>
