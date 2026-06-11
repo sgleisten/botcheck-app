@@ -2,17 +2,26 @@ import { createFileRoute } from '@tanstack/react-router'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) throw new Error('STRIPE_SECRET_KEY is not configured')
+  return new Stripe(key)
+}
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+function getSupabase() {
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new Error('Supabase credentials are not configured')
+  return createClient(url, key)
+}
 
 export const Route = createFileRoute('/api/webhooks/stripe')({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const stripe = getStripe()
+        const supabase = getSupabase()
+
         const body = await request.text()
         const signature = request.headers.get('stripe-signature')
 
