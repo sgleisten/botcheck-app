@@ -1,6 +1,17 @@
 
 @import "tailwindcss";
 
+@theme {
+  --color-cream: #fdf8e1;
+  --color-teal: #2a5d67;
+  --color-teal-dark: #1f3d44;
+  --color-orange: #e8a054;
+  --color-green: #89b494;
+  --color-coral: #c0504d;
+  --font-display: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -13,5 +24,38 @@ body,
 
 body {
   margin: 0;
+  font-family: var(--font-body);
+  color: var(--color-teal);
+  background-color: var(--color-cream);
+  -webkit-font-smoothing: antialiased;
 }
 
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.card-shadow {
+  box-shadow: 4px 4px 0 0 var(--color-teal);
+}
+
+.card-elevated {
+  box-shadow:
+    0 1px 2px rgb(31 61 68 / 0.06),
+    0 8px 24px rgb(31 61 68 / 0.08);
+}
+
+.input-field {
+  @apply w-full rounded-md border-2 border-teal/20 bg-white px-4 py-3 text-sm text-teal placeholder:text-teal/40 focus:border-teal focus:outline-none focus:ring-2 focus:ring-orange/30 transition-colors;
+}
+
+.section-label {
+  @apply text-xs font-semibold tracking-[0.2em] uppercase text-teal/50;
+}
+
+.highlight-orange {
+  @apply text-orange;
+}

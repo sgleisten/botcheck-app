@@ -53,6 +53,47 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
               console.error('Failed to update client on checkout.session.completed:', error)
               return new Response('Database error', { status: 500 })
             }
+
+            const email = session.customer_email ?? session.customer_details?.email
+            if (email) {
+              const { data: client } = await supabase
+                .from('clients')
+                .select('domain, business_name, contact_email')
+                .eq('id', clientId)
+                .single()
+              try {
+                const { sendPostCheckoutEmail } = await import('@/lib/email.server')
+                await sendPostCheckoutEmail({
+                  clientId,
+                  email: client?.contact_email ?? email,
+                  domain: client?.domain ?? session.metadata?.domain ?? '',
+                  businessName: client?.business_name ?? null,
+                })
+              } catch (err) {
+                console.error('[email] Post-checkout email error:', err)
+              }
+            }
+            break
+          }
+
+          case 'invoice.paid': {
+            const invoice = event.data.object as Stripe.Invoice
+            const clientId = invoice.metadata?.client_id
+            if (!clientId) {
+              console.log('invoice.paid without client_id metadata, skipping')
+              break
+            }
+            const { error } = await supabase
+              .from('clients')
+              .update({
+                status: 'onboarding',
+                stripe_customer_id: invoice.customer as string,
+              })
+              .eq('id', clientId)
+            if (error) {
+              console.error('Failed to update client on invoice.paid:', error)
+              return new Response('Database error', { status: 500 })
+            }
             break
           }
 

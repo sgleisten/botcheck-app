@@ -2,16 +2,29 @@ import { createServerFn } from '@tanstack/react-start'
 import { useSession } from '@tanstack/react-start/server'
 import { redirect } from '@tanstack/react-router'
 import { z } from 'zod'
-import { supabaseAdmin } from '@/integrations/supabase/client.server'
+import { supabaseAdmin, supabaseAuth } from '@/integrations/supabase/client.server'
+import {
+  checkoutUrl,
+  generateCheckoutToken,
+  onboardingUrl,
+  type BillingType,
+} from '@/lib/billing.server'
 
 type AdminSession = { userId?: string }
 
 // SESSION_SECRET must be ≥32 chars. Set in .env — the fallback is dev-only.
 function sessionConfig() {
+  const isDev = process.env.NODE_ENV === 'development'
   return {
     password: process.env.SESSION_SECRET ?? 'dev-only-fallback-secret-needs-32c!!',
     name: 'admin',
     maxAge: 60 * 60 * 8, // 8 h
+    cookie: {
+      httpOnly: true,
+      secure: !isDev,
+      sameSite: 'lax' as const,
+      path: '/',
+    },
   }
 }
 
@@ -34,11 +47,18 @@ export const adminLogin = createServerFn({ method: 'POST' })
     const adminUserId = process.env.ADMIN_USER_ID
     if (!adminUserId) throw new Error('ADMIN_USER_ID is not configured')
 
-    const { data: auth, error } = await supabaseAdmin.auth.signInWithPassword({
+    const { data: auth, error } = await supabaseAuth.auth.signInWithPassword({
       email: data.email,
       password: data.password,
     })
-    if (error || !auth.user) throw new Error('Invalid credentials')
+    if (error) {
+      throw new Error(
+        error.message === 'Invalid login credentials'
+          ? 'Email or password is incorrect.'
+          : error.message,
+      )
+    }
+    if (!auth.user) throw new Error('Email or password is incorrect.')
     if (auth.user.id !== adminUserId) throw new Error('Not authorized')
 
     const session = await useSession<AdminSession>(sessionConfig())
@@ -65,7 +85,9 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
 
     supabaseAdmin
       .from('clients')
-      .select('id, domain, business_name, status, created_at')
+      .select(
+        'id, domain, business_name, contact_email, status, billing_type, quoted_monthly_cents, checkout_token, created_at',
+      )
       .order('created_at', { ascending: false }),
 
     supabaseAdmin
@@ -92,7 +114,11 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
       id: string
       domain: string
       business_name: string | null
+      contact_email: string | null
       status: string
+      billing_type: BillingType
+      quoted_monthly_cents: number | null
+      checkout_token: string | null
       created_at: string
     }>,
     recentScans: scansRes.data as Array<{
@@ -110,6 +136,14 @@ export const approveProfile = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const adminUserId = await assertAdmin()
 
+    const { data: profile, error: fetchError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, client_id, clients(domain, business_name, contact_email)')
+      .eq('id', data.profileId)
+      .single()
+
+    if (fetchError || !profile) throw new Error('Profile not found')
+
     const { error } = await supabaseAdmin
       .from('profiles')
       .update({
@@ -120,5 +154,121 @@ export const approveProfile = createServerFn({ method: 'POST' })
       .eq('id', data.profileId)
 
     if (error) throw new Error(error.message)
+
+    const client = profile.clients as {
+      domain: string
+      business_name: string | null
+      contact_email: string | null
+    } | null
+
+    if (client?.contact_email) {
+      try {
+        const { sendProfileLiveEmail } = await import('@/lib/email.server')
+        await sendProfileLiveEmail({
+          clientId: profile.client_id,
+          email: client.contact_email,
+          domain: client.domain,
+          businessName: client.business_name,
+        })
+      } catch (err) {
+        console.error('[email] Profile live notification error:', err)
+      }
+    }
+
     return { ok: true }
+  })
+
+const createDealSchema = z.object({
+  domain: z.string().min(3).max(255),
+  contactEmail: z.string().email(),
+  businessName: z.string().max(255).optional(),
+  billingType: z.enum(['custom_checkout', 'invoice', 'comped']),
+  monthlyPriceDollars: z.number().positive().optional(),
+  stripePriceId: z.string().startsWith('price_').optional(),
+})
+
+export const createClientDeal = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => createDealSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    if (data.billingType === 'custom_checkout' && !data.monthlyPriceDollars && !data.stripePriceId) {
+      throw new Error('Custom checkout requires a monthly price or Stripe Price ID.')
+    }
+
+    const quotedCents =
+      data.monthlyPriceDollars != null ? Math.round(data.monthlyPriceDollars * 100) : null
+
+    const checkoutToken =
+      data.billingType === 'custom_checkout' ? generateCheckoutToken() : null
+
+    const status =
+      data.billingType === 'comped' ? 'onboarding' : 'pending_payment'
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .insert({
+        domain: data.domain,
+        business_name: data.businessName ?? null,
+        contact_email: data.contactEmail,
+        status,
+        billing_type: data.billingType,
+        stripe_price_id: data.stripePriceId ?? null,
+        quoted_monthly_cents: quotedCents,
+        checkout_token: checkoutToken,
+      })
+      .select('id, checkout_token')
+      .single()
+
+    if (error || !client) throw new Error(error?.message ?? 'Failed to create client')
+
+    return {
+      clientId: client.id,
+      checkoutUrl: client.checkout_token ? checkoutUrl(client.checkout_token) : null,
+      onboardingUrl: onboardingUrl(client.id),
+      billingType: data.billingType,
+    }
+  })
+
+export const markClientPaid = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => z.object({ clientId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: client, error: fetchError } = await supabaseAdmin
+      .from('clients')
+      .select('id, billing_type, status, domain, business_name, contact_email')
+      .eq('id', data.clientId)
+      .single()
+
+    if (fetchError || !client) throw new Error('Client not found')
+    if (client.billing_type !== 'invoice') {
+      throw new Error('Mark paid is only for invoice-billed clients.')
+    }
+    if (client.status !== 'pending_payment') {
+      throw new Error('Client is not awaiting payment.')
+    }
+
+    const { error } = await supabaseAdmin
+      .from('clients')
+      .update({ status: 'onboarding' })
+      .eq('id', data.clientId)
+
+    if (error) throw new Error(error.message)
+
+    if (client.contact_email) {
+      try {
+        const { sendPostCheckoutEmail } = await import('@/lib/email.server')
+        await sendPostCheckoutEmail({
+          clientId: data.clientId,
+          email: client.contact_email,
+          domain: client.domain,
+          businessName: client.business_name,
+        })
+      } catch (err) {
+        console.error('[email] Post-invoice-paid email error:', err)
+      }
+    }
+
+    return { ok: true, onboardingUrl: onboardingUrl(data.clientId) }
   })

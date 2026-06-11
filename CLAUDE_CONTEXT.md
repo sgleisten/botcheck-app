@@ -29,7 +29,7 @@ in three places:
 
 ## Next thing to do
 Test the onboarding chat by visiting:
-http://localhost:3000/onboarding/f730a399-341a-45a2-87b6-d03e7188504c
+http://localhost:3000/onboarding/098895ea-00e5-4b23-8100-2432a0286626
 
 If it loads, walk through the chat to completion and 
 verify generateProfile fires and creates a pending_review 
@@ -59,9 +59,10 @@ Edge function deployed: serve-profile
 https://github.com/sgleisten/botcheck-app
 
 ## Test client record in Supabase
-UUID: f730a399-341a-45a2-87b6-d03e7188504c
-Domain: rpms.org
-Business: Rogers Park Montessori School
+Client UUID: 098895ea-00e5-4b23-8100-2432a0286626
+Domain: heybodhi.ai
+Business: (linked to sam@aieducators.ai)
+Note: f730a399-341a-45a2-87b6-d03e7188504c is the auth user id, NOT the client id.
 
 ## Key files
 src/lib/scan.functions.ts — free scan logic
@@ -87,5 +88,8 @@ STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
 STRIPE_PRICE_ID_STARTER
 RESEND_API_KEY
+ADMIN_EMAIL
 ADMIN_USER_ID
+EMAIL_FROM
+APP_URL
 SESSION_SECRET

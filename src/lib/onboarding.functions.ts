@@ -2,13 +2,15 @@ import { createServerFn } from '@tanstack/react-start'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { useSession } from '@tanstack/react-start/server'
-import { redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 import { supabaseAdmin } from '@/integrations/supabase/client.server'
-import { userSessionConfig } from './auth.functions'
-
-type JsonPrimitive = string | number | boolean | null
-type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
+import { redirectToLogin, userSessionConfig } from './auth.functions'
+import {
+  buildSiteScanFromRow,
+  formatSiteScanForPrompt,
+  type JsonValue,
+  type SiteScan,
+} from './site-scan'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -17,11 +19,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
-// Stable portion of the onboarding system prompt — cached across turns
 const ONBOARDING_INSTRUCTIONS = `\
 You are an AI presence specialist helping a small business owner set up their AI presence files \
-(llms.txt, tools.json, robots.txt). You have already crawled their website and have the crawl \
-data below.
+(llms.txt, tools.json, robots.txt). You already ran a free Agent Readiness Scan on their website \
+and have the findings below.
 
 Your job is to confirm what you found and collect exactly these six pieces of information:
 
@@ -32,15 +33,15 @@ Your job is to confirm what you found and collect exactly these six pieces of in
 5. Which AI crawlers should get full access (default: all crawlers)
 6. Confirmed business hours and phone number per location
 
-Be conversational and warm. Reference the crawl data to confirm details rather than asking \
-from scratch. Work through the six items systematically — don't ask for everything at once.
+Be conversational and warm. Reference the scan findings to confirm details rather than asking \
+from scratch. Work through the six items systematically — don't ask for everything at once. \
+Never say "crawl data" — refer to it as "what we found on your website" or "your scan results".
 
 When you have confirmed all six items with the user, end your response with exactly: \
 READY_TO_GENERATE`
 
-// Generation system prompt — stable, will cache well across calls
 const GENERATION_SYSTEM = `\
-You are an AI presence file generator. Given crawl data and confirmed business details, \
+You are an AI presence file generator. Given website scan findings and confirmed business details, \
 you generate three files in a single response:
 
 1. llms.txt — follows the llms.txt standard (plain text, markdown headings, concise factual \
@@ -56,20 +57,47 @@ these three top-level keys: "llms_txt", "tools_json", "robots_txt_additions". \
 "tools_json" must be a JSON array (not a string). "llms_txt" and "robots_txt_additions" \
 must be strings.`
 
+async function loadSiteScanForClient(clientId: string, domain: string): Promise<SiteScan | null> {
+  const { data: byClient } = await supabaseAdmin
+    .from('scans')
+    .select('url, ars_score, categories, top_failures, quick_wins')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const fromClient = buildSiteScanFromRow(byClient)
+  if (fromClient) return fromClient
+
+  const normalizedDomain = domain
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/$/, '')
+
+  const { data: byDomain } = await supabaseAdmin
+    .from('scans')
+    .select('url, ars_score, categories, top_failures, quick_wins')
+    .ilike('url', `%${normalizedDomain}%`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return buildSiteScanFromRow(byDomain)
+}
+
 export const runOnboardingChat = createServerFn({ method: 'POST' })
   .validator((input: {
     clientId: string
     messages: { role: 'user' | 'assistant'; content: string }[]
-    crawlData: { [key: string]: JsonValue }
+    siteScan: SiteScan
   }) => input)
   .handler(async ({ data }) => {
-    const { messages, crawlData } = data
+    const { messages, siteScan } = data
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 2048,
       system: [
-        // Cache the stable instructions — not the crawl data, which varies per client
         {
           type: 'text',
           text: ONBOARDING_INSTRUCTIONS,
@@ -77,7 +105,7 @@ export const runOnboardingChat = createServerFn({ method: 'POST' })
         },
         {
           type: 'text',
-          text: `Crawl data from their website:\n${JSON.stringify(crawlData, null, 2)}`,
+          text: `Website scan findings:\n${formatSiteScanForPrompt(siteScan)}`,
         },
       ],
       messages: messages.map((m) => ({
@@ -97,11 +125,11 @@ export const runOnboardingChat = createServerFn({ method: 'POST' })
 export const generateProfile = createServerFn({ method: 'POST' })
   .validator((input: {
     clientId: string
-    crawlData: { [key: string]: JsonValue }
+    siteScan: SiteScan
     questionnaireAnswers: string
   }) => input)
   .handler(async ({ data }) => {
-    const { clientId, crawlData, questionnaireAnswers } = data
+    const { clientId, siteScan, questionnaireAnswers } = data
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -118,8 +146,8 @@ export const generateProfile = createServerFn({ method: 'POST' })
           role: 'user',
           content: `Generate the three AI presence files for this business.
 
-Crawl data:
-${JSON.stringify(crawlData, null, 2)}
+Website scan findings:
+${formatSiteScanForPrompt(siteScan)}
 
 Confirmed details from onboarding questionnaire:
 ${questionnaireAnswers}`,
@@ -132,7 +160,6 @@ ${questionnaireAnswers}`,
     )
     if (!textBlock) throw new Error('No text response from Claude')
 
-    // Strip markdown fences if Claude wrapped the JSON anyway
     const raw = textBlock.text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
 
     let parsed: {
@@ -149,28 +176,52 @@ ${questionnaireAnswers}`,
 
     const { llms_txt, tools_json, robots_txt_additions } = parsed
 
-    const { error } = await supabase.from('profiles').insert({
-      client_id: clientId,
-      status: 'pending_review',
-      llms_txt,
-      tools_json,
-      robots_txt_additions,
-      crawl_data: crawlData,
-      questionnaire_answers: { raw: questionnaireAnswers },
-      generated_at: new Date().toISOString(),
-    })
+    const { data: inserted, error } = await supabase
+      .from('profiles')
+      .insert({
+        client_id: clientId,
+        status: 'pending_review',
+        llms_txt,
+        tools_json,
+        robots_txt_additions,
+        crawl_data: siteScan as unknown as { [key: string]: JsonValue },
+        questionnaire_answers: { raw: questionnaireAnswers },
+        generated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
 
-    if (error) throw new Error(`Failed to store profile: ${error.message}`)
+    if (error || !inserted) throw new Error(`Failed to store profile: ${error?.message ?? 'unknown'}`)
 
-    return { llms_txt, tools_json, robots_txt_additions }
+    const { data: client } = await supabaseAdmin
+      .from('clients')
+      .select('domain, business_name')
+      .eq('id', clientId)
+      .single()
+
+    try {
+      const { sendProfileReviewEmail } = await import('./email.server')
+      await sendProfileReviewEmail({
+        profileId: inserted.id,
+        clientId,
+        domain: client?.domain ?? siteScan.url,
+        businessName: client?.business_name ?? null,
+      })
+    } catch (err) {
+      console.error('[email] Profile review notification error:', err)
+    }
+
+    return { profileId: inserted.id, llms_txt, tools_json, robots_txt_additions }
   })
 
 export const getOnboardingData = createServerFn({ method: 'GET' })
   .validator((input: unknown) => z.object({ clientId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
     const session = await useSession<{ userId?: string }>(userSessionConfig())
+    const returnPath = `/onboarding/${data.clientId}`
+
     if (!session.data.userId) {
-      throw redirect({ to: '/login', search: { redirectTo: `/onboarding/${data.clientId}` } })
+      redirectToLogin(returnPath)
     }
 
     const { data: client, error } = await supabaseAdmin
@@ -179,24 +230,18 @@ export const getOnboardingData = createServerFn({ method: 'GET' })
       .eq('id', data.clientId)
       .single()
 
-    if (error || !client) throw redirect({ to: '/login' })
-    // If client has no user_id yet (created by webhook), claim it for this user
+    if (error || !client) redirectToLogin(returnPath)
+
     if (client.user_id === null) {
       await supabaseAdmin
         .from('clients')
         .update({ user_id: session.data.userId })
         .eq('id', data.clientId)
     } else if (client.user_id !== session.data.userId) {
-      throw redirect({ to: '/login' })
+      redirectToLogin(returnPath)
     }
 
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('crawl_data')
-      .eq('client_id', data.clientId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const siteScan = await loadSiteScanForClient(data.clientId, client.domain)
 
     return {
       client: client as {
@@ -206,6 +251,6 @@ export const getOnboardingData = createServerFn({ method: 'GET' })
         user_id: string
         status: string
       },
-      crawlData: (profile?.crawl_data ?? {}) as { [key: string]: JsonValue },
+      siteScan,
     }
   })

@@ -14,6 +14,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as OnboardingStatusRouteImport } from './routes/onboarding/status'
 import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$clientId'
+import { Route as CheckoutTokenRouteImport } from './routes/checkout/$token'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
 
@@ -42,6 +43,11 @@ const OnboardingClientIdRoute = OnboardingClientIdRouteImport.update({
   path: '/onboarding/$clientId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CheckoutTokenRoute = CheckoutTokenRouteImport.update({
+  id: '/checkout/$token',
+  path: '/checkout/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/admin/login',
   path: '/admin/login',
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/admin/login': typeof AdminLoginRoute
+  '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
   '/admin/': typeof AdminIndexRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/admin/login': typeof AdminLoginRoute
+  '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
   '/admin': typeof AdminIndexRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/admin/login': typeof AdminLoginRoute
+  '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
   '/admin/': typeof AdminIndexRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/admin/login'
+    | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
     | '/admin/'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/admin/login'
+    | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
     | '/admin'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/admin/login'
+    | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
     | '/admin/'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  CheckoutTokenRoute: typeof CheckoutTokenRoute
   OnboardingClientIdRoute: typeof OnboardingClientIdRoute
   OnboardingStatusRoute: typeof OnboardingStatusRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -158,6 +171,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingClientIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/checkout/$token': {
+      id: '/checkout/$token'
+      path: '/checkout/$token'
+      fullPath: '/checkout/$token'
+      preLoaderRoute: typeof CheckoutTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/login': {
       id: '/admin/login'
       path: '/admin/login'
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   AdminLoginRoute: AdminLoginRoute,
+  CheckoutTokenRoute: CheckoutTokenRoute,
   OnboardingClientIdRoute: OnboardingClientIdRoute,
   OnboardingStatusRoute: OnboardingStatusRoute,
   AdminIndexRoute: AdminIndexRoute,

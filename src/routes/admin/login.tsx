@@ -1,6 +1,8 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { adminLogin } from '@/lib/admin.functions'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
 
 export const Route = createFileRoute('/admin/login')({ component: AdminLogin })
 
@@ -26,53 +28,48 @@ function AdminLogin() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-white border rounded-lg p-8 space-y-4 shadow-sm"
-      >
-        <h1 className="text-xl font-semibold">Admin</h1>
+    <div className="min-h-screen flex items-center justify-center bg-cream px-4">
+      <Card className="w-full max-w-sm space-y-4">
+        <h1 className="text-xl font-extrabold text-teal">Admin</h1>
 
         {error && (
-          <p className="text-sm text-red-600 bg-red-50 rounded p-2">{error}</p>
+          <p className="text-sm text-coral bg-coral/10 border-2 border-coral p-2">{error}</p>
         )}
 
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-sm text-teal/70" htmlFor="email">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="input-field"
+            />
+          </div>
 
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600" htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-          />
-        </div>
+          <div className="space-y-1">
+            <label className="text-sm text-teal/70" htmlFor="password">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="input-field"
+            />
+          </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-gray-900 text-white rounded py-2 text-sm font-medium hover:bg-gray-700 disabled:opacity-50"
-        >
-          {loading ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? 'Signing in…' : 'Sign in'}
+          </Button>
+        </form>
+      </Card>
     </div>
   )
 }

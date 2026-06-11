@@ -204,9 +204,8 @@ const checkoutSchema = z.object({
 export const createCheckoutSession = createServerFn({ method: 'POST' })
   .validator((input: unknown) => checkoutSchema.parse(input))
   .handler(async ({ data }) => {
-    const Stripe = (await import('stripe')).default
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
+    const { createStripeCheckoutSession, appBaseUrl } = await import('@/lib/billing.server')
 
     const { data: client, error } = await supabaseAdmin
       .from('clients')
@@ -215,25 +214,25 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         business_name: data.businessName ?? null,
         contact_email: data.email,
         status: 'pending_payment',
+        billing_type: 'standard',
       })
-      .select('id')
+      .select('id, domain, billing_type, stripe_price_id, quoted_monthly_cents')
       .single()
 
     if (error || !client) throw new Error(`Failed to create client: ${error?.message}`)
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      line_items: [{ price: process.env.STRIPE_PRICE_ID_STARTER!, quantity: 1 }],
-      customer_email: data.email,
-      metadata: {
-        client_id: client.id,
-        domain: data.domain,
-        scan_id: data.scanId,
-      },
-      success_url: `${process.env.APP_URL ?? 'http://localhost:3000'}/onboarding/${client.id}`,
-      cancel_url: `${process.env.APP_URL ?? 'http://localhost:3000'}/`,
+    if (data.scanId) {
+      await supabaseAdmin.from('scans').update({ client_id: client.id }).eq('id', data.scanId)
+    }
+
+    const url = await createStripeCheckoutSession({
+      clientId: client.id,
+      domain: data.domain,
+      email: data.email,
+      billing: { ...client, domain: data.domain },
+      scanId: data.scanId,
+      cancelUrl: `${appBaseUrl()}/`,
     })
 
-    if (!session.url) throw new Error('Stripe did not return a checkout URL')
-    return { url: session.url }
+    return { url }
   })
