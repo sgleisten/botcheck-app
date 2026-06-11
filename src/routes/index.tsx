@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import { runScan, saveEmail } from '@/lib/scan.functions'
+import { runScan, saveEmail, createCheckoutSession } from '@/lib/scan.functions'
 
 export const Route = createFileRoute('/')({ component: ScanPage })
 
@@ -14,6 +14,7 @@ function ScanPage() {
   const [url, setUrl] = useState('')
   const [email, setEmail] = useState('')
   const [emailSaved, setEmailSaved] = useState(false)
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [scan, setScan] = useState<ScanState>({ status: 'idle' })
 
   async function handleScan(e: React.FormEvent) {
@@ -33,6 +34,20 @@ function ScanPage() {
     if (scan.status !== 'done') return
     await saveEmail({ data: { scanId: scan.result.id, email } })
     setEmailSaved(true)
+  }
+
+  async function handleCheckout() {
+    if (scan.status !== 'done') return
+    setCheckoutLoading(true)
+    try {
+      const { url } = await createCheckoutSession({
+        data: { scanId: scan.result.id, email, domain: scan.result.url },
+      })
+      window.location.href = url
+    } catch (err) {
+      console.error('Checkout error:', err)
+      setCheckoutLoading(false)
+    }
   }
 
   const scoreColor = (score: number) =>
@@ -156,9 +171,20 @@ function ScanPage() {
                 </div>
               </form>
             ) : (
-              <p className="text-sm text-green-700 font-medium">
-                Report on its way — check your inbox!
-              </p>
+              <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+                <p className="text-sm text-green-700 font-medium">✓ Report on its way — check your inbox!</p>
+                <div className="border-t pt-4">
+                  <p className="font-semibold text-gray-900 text-lg">We fix this for you.</p>
+                  <p className="text-gray-500 text-sm mt-1">$299/mo — we build your AI profile, host it, and update it every week as your site changes.</p>
+                  <button
+                    onClick={handleCheckout}
+                    disabled={checkoutLoading}
+                    className="mt-4 w-full rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {checkoutLoading ? 'Redirecting…' : 'Fix this for me — $299/mo'}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

@@ -36,16 +36,21 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
         switch (event.type) {
           case 'checkout.session.completed': {
             const session = event.data.object as Stripe.Checkout.Session
-            const { error } = await supabase.from('clients').insert({
-              stripe_customer_id: session.customer as string,
-              stripe_subscription_id: session.subscription as string,
-              contact_email: session.customer_details?.email ?? null,
-              domain: session.metadata?.domain ?? '',
-              business_name: session.metadata?.business_name ?? null,
-              status: 'onboarding',
-            })
+            const clientId = session.metadata?.client_id
+            if (!clientId) {
+              console.error('No client_id in session metadata')
+              break
+            }
+            const { error } = await supabase
+              .from('clients')
+              .update({
+                status: 'onboarding',
+                stripe_customer_id: session.customer as string,
+                stripe_subscription_id: session.subscription as string,
+              })
+              .eq('id', clientId)
             if (error) {
-              console.error('Failed to create client on checkout.session.completed:', error)
+              console.error('Failed to update client on checkout.session.completed:', error)
               return new Response('Database error', { status: 500 })
             }
             break

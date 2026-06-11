@@ -1,6 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import { useSession } from '@tanstack/react-start/server'
+import { redirect } from '@tanstack/react-router'
+import { z } from 'zod'
+import { supabaseAdmin } from '@/integrations/supabase/client.server'
+import { userSessionConfig } from './auth.functions'
 
 type JsonPrimitive = string | number | boolean | null
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -158,4 +163,49 @@ ${questionnaireAnswers}`,
     if (error) throw new Error(`Failed to store profile: ${error.message}`)
 
     return { llms_txt, tools_json, robots_txt_additions }
+  })
+
+export const getOnboardingData = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => z.object({ clientId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    const session = await useSession<{ userId?: string }>(userSessionConfig())
+    if (!session.data.userId) {
+      throw redirect({ to: '/login', search: { redirectTo: `/onboarding/${data.clientId}` } })
+    }
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .select('id, domain, business_name, user_id, status')
+      .eq('id', data.clientId)
+      .single()
+
+    if (error || !client) throw redirect({ to: '/login' })
+    // If client has no user_id yet (created by webhook), claim it for this user
+    if (client.user_id === null) {
+      await supabaseAdmin
+        .from('clients')
+        .update({ user_id: session.data.userId })
+        .eq('id', data.clientId)
+    } else if (client.user_id !== session.data.userId) {
+      throw redirect({ to: '/login' })
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('crawl_data')
+      .eq('client_id', data.clientId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    return {
+      client: client as {
+        id: string
+        domain: string
+        business_name: string | null
+        user_id: string
+        status: string
+      },
+      crawlData: (profile?.crawl_data ?? {}) as { [key: string]: JsonValue },
+    }
   })

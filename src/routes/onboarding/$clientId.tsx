@@ -1,8 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Send, Loader2 } from 'lucide-react'
-import { getOnboardingData } from '@/lib/onboarding.server'
-import { runOnboardingChat, generateProfile } from '@/lib/onboarding.functions'
+import { getOnboardingData, runOnboardingChat, generateProfile } from '@/lib/onboarding.functions'
 
 export const Route = createFileRoute('/onboarding/$clientId')({
   loader: ({ params }) => getOnboardingData({ data: { clientId: params.clientId } }),
