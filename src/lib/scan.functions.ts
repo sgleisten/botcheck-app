@@ -14,7 +14,50 @@ const emailSchema = z.object({
 })
 
 type Category = { score: number; finding: string }
-type BeforeAfter = { ai_now: string; ai_with_botcheck: string }
+
+export type BeforeAfter = {
+  user_question?: string
+  ai_now: string
+  ai_with_botcheck: string
+  stakes?: string
+  pain_signals?: string[]
+  win_signals?: string[]
+}
+
+// Older scans sometimes produced bracket placeholders like "[price]" or
+// "[booking link]". Patching them in place reads awkwardly, so if a value
+// still contains a placeholder we fall back to the clean default copy.
+function pickClean(candidate: string | undefined, fallback: string): string {
+  const text = candidate?.trim()
+  if (!text || /\[[^\]]*\]/.test(text)) return fallback
+  return text
+}
+
+function normalizeBeforeAfter(
+  raw: Partial<BeforeAfter> | null | undefined,
+  domain: string,
+): BeforeAfter {
+  const hostname = domain.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  return {
+    user_question: pickClean(
+      raw?.user_question,
+      `What are your prices and how do I book at ${hostname}?`,
+    ),
+    ai_now: pickClean(
+      raw?.ai_now,
+      'Based on your website, I can\'t find clear pricing or a reliable way to book. You may want to call them directly — I\'m not confident I have the right details.',
+    ),
+    ai_with_botcheck: pickClean(
+      raw?.ai_with_botcheck,
+      'With a BotCheck profile, I can answer instantly with your real pricing, hours, services, and a direct booking link — so customers reach you instead of guessing.',
+    ),
+    stakes:
+      raw?.stakes?.trim() ||
+      'That customer just left without booking — and you never knew they were looking.',
+    pain_signals: raw?.pain_signals?.filter(Boolean).slice(0, 4) ?? [],
+    win_signals: raw?.win_signals?.filter(Boolean).slice(0, 4) ?? [],
+  }
+}
 type ScanResult = {
   id: string
   url: string
@@ -140,15 +183,19 @@ Return ONLY valid JSON, no other text:
     "plain English description of quick fix 2"
   ],
   "before_after": {
-    "ai_now": "2-4 sentences: what an AI assistant would tell a customer asking about this business RIGHT NOW based on the website — include specific wrong or missing details (e.g. wrong pricing guess, can't find booking, vague hours). Write as if quoting the AI's answer.",
-    "ai_with_botcheck": "2-4 sentences: what the same AI would tell that customer WITH an accurate BotCheck profile — correct booking path, pricing, hours, services. Same conversational tone, but accurate and helpful."
+    "user_question": "One realistic question a real customer would type into ChatGPT or Siri about this business, naming the business or domain. Use the actual business name — NEVER use bracket placeholders like [name].",
+    "ai_now": "3-5 sentences: the AI's frustrating answer TODAY — vague, hedging, wrong guesses, or 'I couldn't find...' Write in first person as the AI ('I wasn't able to find...'). Include SPECIFIC wrong or missing details from the scan. Make the business owner feel the pain of losing this customer. Write naturally — NEVER use bracket placeholders like [price] or [link].",
+    "ai_with_botcheck": "3-5 sentences: the SAME question answered confidently WITH an accurate BotCheck profile. First person as the AI, like a perfect concierge. CRITICAL: write in natural prose with NO bracket placeholders. If the real price/hours are in the scan, state them. If a detail is NOT on the site, describe the capability naturally instead (e.g. 'you can book instantly through their online scheduler' or 'pricing for each program is listed clearly') — never write '[price]', '[booking link]', or any bracketed token.",
+    "stakes": "One gut-punch sentence for the business owner about what they just lost. E.g. 'That customer just booked with your competitor instead.' or 'You paid for the ad — AI sent them away for free.'",
+    "pain_signals": ["2-4 short tags, max 6 words each, describing what's wrong in ai_now — e.g. 'No booking link found', 'Pricing unclear', 'Wrong hours guessed'"],
+    "win_signals": ["2-4 short tags, max 6 words each, describing wins in ai_with_botcheck — e.g. 'Exact pricing shown', 'Direct booking link', 'Hours confirmed'"]
   }
 }`
 
     // 4. Call Claude via SDK
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      max_tokens: 2500,
       messages: [{ role: 'user', content: prompt }],
     })
 
@@ -169,16 +216,7 @@ Return ONLY valid JSON, no other text:
       parsed = JSON.parse(match[0])
     }
 
-    if (!parsed.before_after?.ai_now || !parsed.before_after?.ai_with_botcheck) {
-      parsed.before_after = {
-        ai_now:
-          parsed.before_after?.ai_now ??
-          'Based on your website, an AI agent would struggle to give accurate booking or pricing details — and may send customers to a competitor instead.',
-        ai_with_botcheck:
-          parsed.before_after?.ai_with_botcheck ??
-          'With a BotCheck profile, the same AI could give accurate booking links, current pricing, hours, and services — so customers reach you, not a guess.',
-      }
-    }
+    parsed.before_after = normalizeBeforeAfter(parsed.before_after, data.url)
 
     // 5. Store in DB
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
@@ -252,7 +290,7 @@ export const getScanById = createServerFn({ method: 'GET' })
 
     if (error || !scan) return null
 
-    const diff = scan.diff as BeforeAfter | null
+    const diff = scan.diff as Partial<BeforeAfter> | null
     return {
       id: scan.id,
       url: scan.url,
@@ -260,10 +298,7 @@ export const getScanById = createServerFn({ method: 'GET' })
       categories: scan.categories as ScanResult['categories'],
       top_failures: (scan.top_failures as string[]) ?? [],
       quick_wins: (scan.quick_wins as string[]) ?? [],
-      before_after: diff ?? {
-        ai_now: 'Based on your website, an AI agent would struggle to give accurate details.',
-        ai_with_botcheck: 'With BotCheck, the same AI could give accurate booking, pricing, and hours.',
-      },
+      before_after: normalizeBeforeAfter(diff, scan.url),
       email: scan.email as string | null,
     }
   })

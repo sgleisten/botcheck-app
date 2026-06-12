@@ -10,7 +10,7 @@ import { CategoryCard } from '@/components/ui/CategoryCard'
 import { RobotImage } from '@/components/ui/RobotImage'
 import { SiteFooter } from '@/components/ui/SiteFooter'
 import { SiteHeader } from '@/components/ui/SiteHeader'
-import { BeforeAfterDemo } from '@/components/ui/BeforeAfterDemo'
+import { BeforeAfterDemo, type BeforeAfterContent } from '@/components/ui/BeforeAfterDemo'
 
 export type ScanResultData = {
   id: string
@@ -19,10 +19,7 @@ export type ScanResultData = {
   categories: SiteScan['categories']
   top_failures: string[]
   quick_wins: string[]
-  before_after: {
-    ai_now: string
-    ai_with_botcheck: string
-  }
+  before_after: BeforeAfterContent
 }
 
 type Props = {
@@ -99,11 +96,7 @@ export function ScanResultsView({
 
       {/* Step 6 — Before/after demo */}
       <Section tone="orange" className="!py-14">
-        <BeforeAfterDemo
-          domain={domain}
-          aiNow={result.before_after.ai_now}
-          aiWithBotcheck={result.before_after.ai_with_botcheck}
-        />
+        <BeforeAfterDemo domain={domain} content={result.before_after} />
       </Section>
 
       {/* Step 7 — Email gate */}
