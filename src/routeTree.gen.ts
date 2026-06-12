@@ -9,10 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ReportScanIdRouteImport } from './routes/report/$scanId'
+import { Route as PrintScanIdRouteImport } from './routes/print/$scanId'
 import { Route as OnboardingStatusRouteImport } from './routes/onboarding/status'
 import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$clientId'
 import { Route as CheckoutTokenRouteImport } from './routes/checkout/$token'
@@ -20,6 +22,11 @@ import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as SitesClientIdFilenameRouteImport } from './routes/sites/$clientId/$filename'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
 
+const PricingRoute = PricingRouteImport.update({
+  id: '/pricing',
+  path: '/pricing',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -38,6 +45,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const ReportScanIdRoute = ReportScanIdRouteImport.update({
   id: '/report/$scanId',
   path: '/report/$scanId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrintScanIdRoute = PrintScanIdRouteImport.update({
+  id: '/print/$scanId',
+  path: '/print/$scanId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingStatusRoute = OnboardingStatusRouteImport.update({
@@ -74,10 +86,12 @@ const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/pricing': typeof PricingRoute
   '/admin/login': typeof AdminLoginRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
+  '/print/$scanId': typeof PrintScanIdRoute
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
@@ -86,10 +100,12 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/pricing': typeof PricingRoute
   '/admin/login': typeof AdminLoginRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
+  '/print/$scanId': typeof PrintScanIdRoute
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
@@ -99,10 +115,12 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/pricing': typeof PricingRoute
   '/admin/login': typeof AdminLoginRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
+  '/print/$scanId': typeof PrintScanIdRoute
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
@@ -113,10 +131,12 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/pricing'
     | '/admin/login'
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
+    | '/print/$scanId'
     | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
@@ -125,10 +145,12 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/pricing'
     | '/admin/login'
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
+    | '/print/$scanId'
     | '/report/$scanId'
     | '/admin'
     | '/api/webhooks/stripe'
@@ -137,10 +159,12 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/login'
+    | '/pricing'
     | '/admin/login'
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
+    | '/print/$scanId'
     | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
@@ -150,10 +174,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  PricingRoute: typeof PricingRoute
   AdminLoginRoute: typeof AdminLoginRoute
   CheckoutTokenRoute: typeof CheckoutTokenRoute
   OnboardingClientIdRoute: typeof OnboardingClientIdRoute
   OnboardingStatusRoute: typeof OnboardingStatusRoute
+  PrintScanIdRoute: typeof PrintScanIdRoute
   ReportScanIdRoute: typeof ReportScanIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
@@ -162,6 +188,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/pricing': {
+      id: '/pricing'
+      path: '/pricing'
+      fullPath: '/pricing'
+      preLoaderRoute: typeof PricingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -188,6 +221,13 @@ declare module '@tanstack/react-router' {
       path: '/report/$scanId'
       fullPath: '/report/$scanId'
       preLoaderRoute: typeof ReportScanIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/print/$scanId': {
+      id: '/print/$scanId'
+      path: '/print/$scanId'
+      fullPath: '/print/$scanId'
+      preLoaderRoute: typeof PrintScanIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding/status': {
@@ -238,10 +278,12 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  PricingRoute: PricingRoute,
   AdminLoginRoute: AdminLoginRoute,
   CheckoutTokenRoute: CheckoutTokenRoute,
   OnboardingClientIdRoute: OnboardingClientIdRoute,
   OnboardingStatusRoute: OnboardingStatusRoute,
+  PrintScanIdRoute: PrintScanIdRoute,
   ReportScanIdRoute: ReportScanIdRoute,
   AdminIndexRoute: AdminIndexRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,

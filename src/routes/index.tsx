@@ -57,8 +57,7 @@ function ScanPage() {
     }
   }
 
-  async function handleCheckout(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleCheckout() {
     if (scan.status !== 'done' || !reportUnlocked) return
     setCheckoutLoading(true)
     setCheckoutError(null)

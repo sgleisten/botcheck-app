@@ -7,9 +7,17 @@ export function SiteHeader() {
         <Link to="/" className="font-display font-extrabold text-xl text-teal tracking-tight">
           BotCheck
         </Link>
-        <p className="hidden sm:block text-xs text-teal/50 font-medium tracking-wide uppercase">
-          Agent Readiness for Small Business
-        </p>
+        <nav className="flex items-center gap-5">
+          <Link
+            to="/pricing"
+            className="text-sm font-semibold text-teal/70 hover:text-teal transition-colors"
+          >
+            Pricing
+          </Link>
+          <p className="hidden md:block text-xs text-teal/50 font-medium tracking-wide uppercase">
+            Agent Readiness for Small Business
+          </p>
+        </nav>
       </div>
     </header>
   )

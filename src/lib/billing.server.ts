@@ -80,7 +80,8 @@ export function resolveCheckoutLineItems(
 }
 
 export function appBaseUrl(): string {
-  return process.env.APP_URL ?? 'http://localhost:3000'
+  const url = process.env.APP_URL?.trim()
+  return url && url.length > 0 ? url.replace(/\/+$/, '') : 'http://localhost:3000'
 }
 
 export function checkoutUrl(token: string): string {

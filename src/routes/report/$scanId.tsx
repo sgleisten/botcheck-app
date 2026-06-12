@@ -37,8 +37,7 @@ function ReportPage() {
     }
   }
 
-  async function handleCheckout(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleCheckout() {
     if (!reportUnlocked) return
     setCheckoutLoading(true)
     setCheckoutError(null)

@@ -1,7 +1,8 @@
 const FROM = process.env.EMAIL_FROM ?? 'BotCheck <notifications@botcheck.io>'
 
 function appUrl(): string {
-  return process.env.APP_URL ?? 'http://localhost:3000'
+  const url = process.env.APP_URL?.trim()
+  return url && url.length > 0 ? url.replace(/\/+$/, '') : 'http://localhost:3000'
 }
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
@@ -108,7 +109,9 @@ export async function sendScanTeaserEmail(data: ScanTeaserEmail): Promise<void> 
     }
   })()
 
-  const reportUrl = `${appUrl()}/report/${data.scanId}`
+  const base = appUrl()
+  const reportUrl = `${base}/report/${data.scanId}`
+  const pdfUrl = `${base}/print/${data.scanId}`
   const teaser =
     data.topFailure ??
     'AI agents may be sending your customers elsewhere because they cannot read your site clearly.'
@@ -122,10 +125,13 @@ export async function sendScanTeaserEmail(data: ScanTeaserEmail): Promise<void> 
       <p style="color: #666; margin-top: 0;">Agent Readiness Score</p>
       <p><strong>One thing we found:</strong> ${teaser}</p>
       <p>Your <strong>full report</strong> — every failure, quick wins, and a live before/after of what AI tells your customers — is waiting for you.</p>
-      <p><a href="${reportUrl}" style="font-weight: bold;">See your full report →</a></p>
+      <p>
+        <a href="${reportUrl}" style="display: inline-block; background: #e8a054; color: #2a5d67; font-weight: bold; text-decoration: none; padding: 12px 24px; border-radius: 8px;">See your full report →</a>
+      </p>
+      <p style="margin-top: 12px;"><a href="${pdfUrl}" style="color: #2a5d67;">Or download a PDF copy of your report →</a></p>
       <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-      <p>Want us to handle it? BotCheck builds your AI profile, hosts it, and updates it weekly — <strong>$299/mo</strong>, no tech skills needed.</p>
-      <p><a href="${reportUrl}#fix">Fix this for me →</a></p>
+      <p>Want us to handle it? BotCheck builds your AI profile, hosts it, and updates it weekly — plans start at <strong>$299/mo</strong>, no tech skills needed.</p>
+      <p><a href="${reportUrl}#fix" style="font-weight: bold;">See your options →</a></p>
     `,
   )
 }

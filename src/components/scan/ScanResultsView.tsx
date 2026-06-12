@@ -1,3 +1,4 @@
+import { Download } from 'lucide-react'
 import {
   CATEGORY_QUESTIONS,
   scoreHeadline,
@@ -11,6 +12,7 @@ import { RobotImage } from '@/components/ui/RobotImage'
 import { SiteFooter } from '@/components/ui/SiteFooter'
 import { SiteHeader } from '@/components/ui/SiteHeader'
 import { BeforeAfterDemo, type BeforeAfterContent } from '@/components/ui/BeforeAfterDemo'
+import { PricingTiers } from '@/components/ui/PricingTiers'
 
 export type ScanResultData = {
   id: string
@@ -32,7 +34,7 @@ type Props = {
   onUnlockReport: (e: React.FormEvent) => void
   checkoutLoading: boolean
   checkoutError: string | null
-  onCheckout: (e: React.FormEvent) => void
+  onCheckout: () => void
 }
 
 export function ScanResultsView({
@@ -154,10 +156,21 @@ export function ScanResultsView({
       {reportUnlocked && (
         <>
           <Section tone="cream" className="!py-8">
-            <p className="text-center text-sm text-teal/70 max-w-lg mx-auto">
-              We sent a short summary to <strong>{email}</strong>. Here&apos;s your full report —
-              failures, quick wins, and what to do next.
-            </p>
+            <div className="max-w-lg mx-auto text-center">
+              <p className="text-sm text-teal/70">
+                We sent a short summary to <strong>{email}</strong>. Here&apos;s your full report —
+                failures, quick wins, and what to do next.
+              </p>
+              <a
+                href={`/print/${result.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-flex items-center gap-2 rounded-md border-2 border-teal/20 bg-white px-5 py-2.5 text-sm font-semibold text-teal hover:border-teal transition-colors"
+              >
+                <Download className="w-4 h-4" aria-hidden />
+                Download PDF report
+              </a>
+            </div>
           </Section>
 
           <Section tone="teal" className="!py-14">
@@ -206,38 +219,26 @@ export function ScanResultsView({
             </ul>
           </Section>
 
-          {/* Step 9 — Offer */}
+          {/* Step 9 — Pricing options */}
           <Section tone="teal" className="!py-16" id="fix">
-            <div className="max-w-xl mx-auto text-center">
-              <p className="section-label text-cream/50 mb-3">Next step</p>
-              <h2 className="text-3xl font-extrabold text-orange mb-3">We fix this for you</h2>
-              <p className="text-cream/75 mb-8 leading-relaxed">
-                $299/mo — we build your AI profile, host it, and update it every week as your site
-                changes. No tech skills needed.
+            <div className="max-w-2xl mx-auto text-center mb-10">
+              <p className="section-label text-cream/50 mb-3">Fix this for me</p>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-orange mb-3">
+                Let BotCheck handle it
+              </h2>
+              <p className="text-cream/75 leading-relaxed">
+                Pick how hands-off you want to be. The Automated plan gets you live in days — no tech
+                skills needed.
               </p>
-
-              <form onSubmit={onCheckout} className="space-y-4">
-                {checkoutError && (
-                  <p className="rounded-md border border-coral/50 bg-coral/10 p-3 text-sm text-coral text-left">
-                    {checkoutError}
-                  </p>
-                )}
-
-                <Button
-                  type="submit"
-                  variant="orange"
-                  size="lg"
-                  className="w-full"
-                  disabled={checkoutLoading}
-                >
-                  {checkoutLoading ? 'Redirecting to checkout…' : 'Fix this for me — $299/mo →'}
-                </Button>
-
-                <p className="text-center text-xs text-cream/45">
-                  Secure checkout via Stripe · Cancel anytime · {email}
-                </p>
-              </form>
             </div>
+            <PricingTiers
+              heading=""
+              subheading=""
+              onSelectAutomated={onCheckout}
+              automatedLoading={checkoutLoading}
+              checkoutError={checkoutError}
+              automatedNote={`Secure checkout via Stripe · Cancel anytime · ${email}`}
+            />
           </Section>
         </>
       )}
