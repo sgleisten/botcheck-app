@@ -46,6 +46,7 @@ function fail(msg) {
 console.log('\nBotCheck funnel verification\n')
 
 const env = loadEnv()
+const appUrl = process.env.APP_URL ?? env.APP_URL ?? 'http://localhost:3000'
 
 console.log('Environment variables')
 for (const key of requiredEnv) {
@@ -93,7 +94,7 @@ const { data: testClient, error: clientErr } = await sb
 if (clientErr || !testClient) fail(`Test client ${TEST_CLIENT} not found`)
 else {
   pass(`Test client: ${testClient.domain} (${testClient.status})`)
-  console.log(`    Onboarding URL: ${env.APP_URL ?? 'http://localhost:3000'}/onboarding/${TEST_CLIENT}`)
+  console.log(`    Onboarding URL: ${appUrl}/onboarding/${TEST_CLIENT}`)
 }
 
 console.log('\nCustom deal smoke test')
@@ -114,19 +115,19 @@ const { data: dealClient, error: dealErr } = await sb
 if (dealErr) fail(`Create deal insert: ${dealErr.message}`)
 else {
   pass('Admin create-deal schema accepts insert')
-  const checkoutUrl = `${env.APP_URL ?? 'http://localhost:3000'}/checkout/${dealClient.checkout_token}`
+  const checkoutUrl = `${appUrl}/checkout/${dealClient.checkout_token}`
   console.log(`    Sample checkout URL: ${checkoutUrl}`)
   await sb.from('clients').delete().eq('id', dealClient.id)
   pass('Cleaned up test deal row')
 }
 
-console.log('\nDev server')
+console.log(`\nHomepage (${appUrl})`)
 try {
-  const res = await fetch(`${env.APP_URL ?? 'http://localhost:3000'}/`)
+  const res = await fetch(`${appUrl}/`)
   if (res.ok) pass(`Homepage ${res.status}`)
   else fail(`Homepage returned ${res.status}`)
 } catch {
-  fail('Dev server not reachable — run npm run dev')
+  fail(`Homepage not reachable at ${appUrl}`)
 }
 
 console.log(`\n${failed === 0 ? 'All checks passed.' : `${failed} check(s) failed.`}\n`)
