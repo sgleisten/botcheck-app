@@ -3,7 +3,8 @@
  * Prints Vercel + Stripe production setup checklist.
  * Run: node scripts/setup-production-env.mjs
  *
- * Vercel CLI must be logged in (`npx vercel login`) to push env vars automatically.
+ * Prefer: `node scripts/complete-production.mjs` (Stripe webhook + smoke test)
+ * Vercel CLI: `npx vercel login` then env add / redeploy
  */
 
 const PRODUCTION_URL = 'https://app.botcheck.io'
