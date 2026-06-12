@@ -11,7 +11,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "verify:funnel": "node scripts/verify-funnel.mjs"
+    "verify:funnel": "node scripts/verify-funnel.mjs",
+    "verify:e2e": "node scripts/e2e-smoke.mjs",
+    "configure:resend": "node scripts/configure-resend.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

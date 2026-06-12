@@ -92,12 +92,29 @@ Invoke with header: `Authorization: Bearer {CRON_SECRET}`
 
 Domain is added on Vercel (`hey-bodhi/botcheck-app`). Finish DNS at **Cloudflare** (registrar for `botcheck.io`):
 
-1. Add **A record**: `app` → `76.76.21.21` (Vercel recommended)
+1. Add **A record** in Cloudflare for `botcheck.io`: name `app`, value `76.76.21.21` (Vercel recommended)
 2. Or switch nameservers to Vercel (`ns1.vercel-dns.com`, `ns2.vercel-dns.com`)
 3. Wait for SSL provisioning (Vercel emails when verification completes)
 4. Ensure `APP_URL=https://app.botcheck.io` on Vercel and Stripe webhook URL match
 
 Until DNS propagates, production works at `https://botcheck-app.vercel.app`.
+
+### Resend (transactional email)
+
+After you have a Resend API key (`re_...`):
+
+```bash
+# Add RESEND_API_KEY=re_... to .env, then:
+npm run configure:resend
+```
+
+This sets Vercel + Supabase secrets and redeploys.
+
+### Smoke test
+
+```bash
+npm run verify:e2e
+```
 
 Profile files are served by the TanStack app at `/sites/{clientId}/llms.txt` and `/sites/{clientId}/tools.json` (`src/routes/sites/$clientId/$filename.ts`). The Supabase `serve-profile` edge function is a legacy alternate; production emails link to `APP_URL/sites/...`.
 
