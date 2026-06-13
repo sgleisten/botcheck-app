@@ -41,7 +41,7 @@ function OnboardingChat() {
   const sendToAssistant = useCallback(
     async (allMessages: Message[]) => {
       if (!siteScan) {
-        setError('We could not find your website scan. Go back to botcheck.io and run a free scan first.')
+        setError('We could not find your website scan. Go back to botcheck.io and run a free scan first, then complete checkout.')
         return
       }
 
@@ -137,7 +137,7 @@ function OnboardingChat() {
           {!siteScan ? (
             <div className="border-2 border-orange bg-orange/20 p-4 text-sm text-teal">
               We don&apos;t have scan results for this site yet. Run a free scan at{' '}
-              <a href="/" className="underline font-medium">botcheck.io</a> first, then return here
+              <a href="https://botcheck.io" className="underline font-medium">botcheck.io</a> first, then return here
               after checkout.
             </div>
           ) : (

@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { z } from 'zod'
 import { runScan, saveEmail, createCheckoutSession } from '@/lib/scan.functions'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -9,7 +10,14 @@ import { SiteFooter } from '@/components/ui/SiteFooter'
 import { SiteHeader } from '@/components/ui/SiteHeader'
 import { ScanResultsView } from '@/components/scan/ScanResultsView'
 
-export const Route = createFileRoute('/')({ component: ScanPage })
+export const Route = createFileRoute('/')({
+  validateSearch: z.object({ url: z.string().optional() }),
+  component: ScanPage,
+})
+
+function normalizeUrl(input: string): string {
+  return /^https?:\/\//i.test(input) ? input : `https://${input}`
+}
 
 type ScanState =
   | { status: 'idle' }
@@ -18,6 +26,7 @@ type ScanState =
   | { status: 'error'; message: string }
 
 function ScanPage() {
+  const { url: urlFromSearch } = Route.useSearch()
   const [url, setUrl] = useState('')
   const [email, setEmail] = useState('')
   const [reportUnlocked, setReportUnlocked] = useState(false)
@@ -26,10 +35,11 @@ function ScanPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [scan, setScan] = useState<ScanState>({ status: 'idle' })
+  const autoScanStarted = useRef(false)
 
-  async function handleScan(e: React.FormEvent) {
-    e.preventDefault()
-    const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`
+  async function runScanForUrl(targetUrl: string) {
+    const normalized = normalizeUrl(targetUrl)
+    setUrl(normalized)
     setScan({ status: 'scanning' })
     setCheckoutError(null)
     setUnlockError(null)
@@ -37,9 +47,21 @@ function ScanPage() {
     try {
       const result = await runScan({ data: { url: normalized } })
       setScan({ status: 'done', result })
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
       setScan({ status: 'error', message: err instanceof Error ? err.message : String(err) })
     }
+  }
+
+  useEffect(() => {
+    if (!urlFromSearch || autoScanStarted.current) return
+    autoScanStarted.current = true
+    void runScanForUrl(urlFromSearch)
+  }, [urlFromSearch])
+
+  async function handleScan(e: React.FormEvent) {
+    e.preventDefault()
+    await runScanForUrl(url)
   }
 
   async function handleUnlockReport(e: React.FormEvent) {
