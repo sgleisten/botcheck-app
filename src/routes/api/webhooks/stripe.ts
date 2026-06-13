@@ -22,6 +22,12 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
         const stripe = getStripe()
         const supabase = getSupabase()
 
+        const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+        if (!webhookSecret) {
+          console.error('STRIPE_WEBHOOK_SECRET is not configured')
+          return new Response('Webhook not configured', { status: 500 })
+        }
+
         const body = await request.text()
         const signature = request.headers.get('stripe-signature')
 
@@ -31,11 +37,7 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
 
         let event: Stripe.Event
         try {
-          event = stripe.webhooks.constructEvent(
-            body,
-            signature,
-            process.env.STRIPE_WEBHOOK_SECRET!,
-          )
+          event = stripe.webhooks.constructEvent(body, signature, webhookSecret)
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Unknown error'
           console.error('Stripe webhook signature verification failed:', message)
@@ -48,8 +50,19 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
             const clientId = session.metadata?.client_id
             if (!clientId) {
               console.error('No client_id in session metadata')
+              return new Response('Missing client_id in metadata', { status: 500 })
+            }
+
+            const { data: existing } = await supabase
+              .from('clients')
+              .select('status, contact_email, domain, business_name')
+              .eq('id', clientId)
+              .single()
+
+            if (existing?.status === 'onboarding' || existing?.status === 'live') {
               break
             }
+
             const { error } = await supabase
               .from('clients')
               .update({
@@ -65,43 +78,17 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
 
             const email = session.customer_email ?? session.customer_details?.email
             if (email) {
-              const { data: client } = await supabase
-                .from('clients')
-                .select('domain, business_name, contact_email')
-                .eq('id', clientId)
-                .single()
               try {
                 const { sendPostCheckoutEmail } = await import('@/lib/email.server')
                 await sendPostCheckoutEmail({
                   clientId,
-                  email: client?.contact_email ?? email,
-                  domain: client?.domain ?? session.metadata?.domain ?? '',
-                  businessName: client?.business_name ?? null,
+                  email: existing?.contact_email ?? email,
+                  domain: existing?.domain ?? session.metadata?.domain ?? '',
+                  businessName: existing?.business_name ?? null,
                 })
               } catch (err) {
                 console.error('[email] Post-checkout email error:', err)
               }
-            }
-            break
-          }
-
-          case 'invoice.paid': {
-            const invoice = event.data.object as Stripe.Invoice
-            const clientId = invoice.metadata?.client_id
-            if (!clientId) {
-              console.log('invoice.paid without client_id metadata, skipping')
-              break
-            }
-            const { error } = await supabase
-              .from('clients')
-              .update({
-                status: 'onboarding',
-                stripe_customer_id: invoice.customer as string,
-              })
-              .eq('id', clientId)
-            if (error) {
-              console.error('Failed to update client on invoice.paid:', error)
-              return new Response('Database error', { status: 500 })
             }
             break
           }
@@ -126,6 +113,12 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
               amount_due: invoice.amount_due,
               attempt_count: invoice.attempt_count,
             })
+            if (invoice.customer) {
+              await supabase
+                .from('clients')
+                .update({ status: 'past_due' })
+                .eq('stripe_customer_id', invoice.customer as string)
+            }
             break
           }
 

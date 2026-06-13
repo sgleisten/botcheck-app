@@ -138,7 +138,7 @@ export const approveProfile = createServerFn({ method: 'POST' })
 
     const { data: profile, error: fetchError } = await supabaseAdmin
       .from('profiles')
-      .select('id, client_id, clients(domain, business_name, contact_email)')
+      .select('id, client_id')
       .eq('id', data.profileId)
       .single()
 
@@ -155,11 +155,11 @@ export const approveProfile = createServerFn({ method: 'POST' })
 
     if (error) throw new Error(error.message)
 
-    const client = profile.clients as {
-      domain: string
-      business_name: string | null
-      contact_email: string | null
-    } | null
+    const { data: client } = await supabaseAdmin
+      .from('clients')
+      .select('domain, business_name, contact_email')
+      .eq('id', profile.client_id)
+      .single()
 
     if (client?.contact_email) {
       try {

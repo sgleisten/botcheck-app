@@ -100,7 +100,7 @@ export type ScanTeaserEmail = {
   topFailure: string | null
 }
 
-export async function sendScanTeaserEmail(data: ScanTeaserEmail): Promise<void> {
+export async function sendScanTeaserEmail(data: ScanTeaserEmail): Promise<boolean> {
   const domain = (() => {
     try {
       return new URL(data.url).hostname
@@ -116,7 +116,7 @@ export async function sendScanTeaserEmail(data: ScanTeaserEmail): Promise<void> 
     data.topFailure ??
     'AI agents may be sending your customers elsewhere because they cannot read your site clearly.'
 
-  await sendEmail(
+  return sendEmail(
     data.email,
     `Your Agent Readiness Score: ${data.arsScore}/100 — ${domain}`,
     `

@@ -262,15 +262,20 @@ export const saveEmail = createServerFn({ method: 'POST' })
 
     try {
       const topFailures = (scan.top_failures as string[]) ?? []
-      await sendScanTeaserEmail({
+      const sent = await sendScanTeaserEmail({
         email: data.email,
         scanId: data.scanId,
         url: scan.url,
         arsScore: scan.ars_score ?? 0,
         topFailure: topFailures[0] ?? null,
       })
+      if (!sent) {
+        throw new Error('Could not send your summary email. Please try again in a moment.')
+      }
     } catch (err) {
+      if (err instanceof Error && err.message.includes('Could not send')) throw err
       console.error('[email] Scan teaser email error:', err)
+      throw new Error('Could not send your summary email. Please try again in a moment.')
     }
 
     return { ok: true }
@@ -315,11 +320,48 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
     const { createStripeCheckoutSession, appBaseUrl } = await import('@/lib/billing.server')
+    const { normalizeDomain } = await import('@/lib/site-scan')
+
+    const domain = normalizeDomain(data.domain)
+
+    const { data: scanRow } = await supabaseAdmin
+      .from('scans')
+      .select('client_id')
+      .eq('id', data.scanId)
+      .maybeSingle()
+
+    if (scanRow?.client_id) {
+      const { data: existingClient } = await supabaseAdmin
+        .from('clients')
+        .select('id, domain, billing_type, stripe_price_id, quoted_monthly_cents, status, contact_email')
+        .eq('id', scanRow.client_id)
+        .maybeSingle()
+
+      if (existingClient?.status === 'pending_payment') {
+        if (existingClient.contact_email !== data.email) {
+          await supabaseAdmin
+            .from('clients')
+            .update({ contact_email: data.email })
+            .eq('id', existingClient.id)
+        }
+
+        const url = await createStripeCheckoutSession({
+          clientId: existingClient.id,
+          domain,
+          email: data.email,
+          billing: { ...existingClient, domain },
+          scanId: data.scanId,
+          cancelUrl: `${appBaseUrl()}/report/${data.scanId}`,
+        })
+
+        return { url }
+      }
+    }
 
     const { data: client, error } = await supabaseAdmin
       .from('clients')
       .insert({
-        domain: data.domain,
+        domain,
         business_name: data.businessName ?? null,
         contact_email: data.email,
         status: 'pending_payment',
@@ -330,17 +372,15 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
 
     if (error || !client) throw new Error(`Failed to create client: ${error?.message}`)
 
-    if (data.scanId) {
-      await supabaseAdmin.from('scans').update({ client_id: client.id }).eq('id', data.scanId)
-    }
+    await supabaseAdmin.from('scans').update({ client_id: client.id }).eq('id', data.scanId)
 
     const url = await createStripeCheckoutSession({
       clientId: client.id,
-      domain: data.domain,
+      domain,
       email: data.email,
-      billing: { ...client, domain: data.domain },
+      billing: { ...client, domain },
       scanId: data.scanId,
-      cancelUrl: `${appBaseUrl()}/`,
+      cancelUrl: `${appBaseUrl()}/report/${data.scanId}`,
     })
 
     return { url }

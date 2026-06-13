@@ -91,7 +91,10 @@ async function sendAlert(to: string, subject: string, html: string) {
 Deno.serve(async (req: Request) => {
   const auth = req.headers.get('Authorization')
   const cronSecret = Deno.env.get('CRON_SECRET')
-  if (cronSecret && auth !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    return new Response('CRON_SECRET not configured', { status: 503 })
+  }
+  if (auth !== `Bearer ${cronSecret}`) {
     return new Response('Unauthorized', { status: 401 })
   }
 

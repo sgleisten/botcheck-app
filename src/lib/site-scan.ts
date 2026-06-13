@@ -116,3 +116,18 @@ export function categoryDotColor(score: number): string {
   if (score >= 12) return 'bg-orange'
   return 'bg-coral'
 }
+
+/** Hostname for clients.domain — accepts full URLs or bare domains. */
+export function normalizeDomain(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return trimmed
+  try {
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+    return new URL(withScheme).hostname.replace(/^www\./, '')
+  } catch {
+    return trimmed
+      .replace(/^https?:\/\//i, '')
+      .replace(/^www\./, '')
+      .replace(/\/.*$/, '')
+  }
+}

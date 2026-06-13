@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { runScan, saveEmail, createCheckoutSession } from '@/lib/scan.functions'
+import { normalizeDomain } from '@/lib/site-scan'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Section } from '@/components/ui/Section'
@@ -11,7 +12,25 @@ import { SiteHeader } from '@/components/ui/SiteHeader'
 import { ScanResultsView } from '@/components/scan/ScanResultsView'
 
 export const Route = createFileRoute('/')({
-  validateSearch: z.object({ url: z.string().optional() }),
+  validateSearch: z.object({
+    url: z
+      .string()
+      .trim()
+      .optional()
+      .refine(
+        (value) => {
+          if (!value) return true
+          try {
+            const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`
+            new URL(normalized)
+            return true
+          } catch {
+            return false
+          }
+        },
+        { message: 'Invalid URL' },
+      ),
+  }),
   component: ScanPage,
 })
 
@@ -35,7 +54,6 @@ function ScanPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [scan, setScan] = useState<ScanState>({ status: 'idle' })
-  const autoScanStarted = useRef(false)
 
   async function runScanForUrl(targetUrl: string) {
     const normalized = normalizeUrl(targetUrl)
@@ -54,8 +72,7 @@ function ScanPage() {
   }
 
   useEffect(() => {
-    if (!urlFromSearch || autoScanStarted.current) return
-    autoScanStarted.current = true
+    if (!urlFromSearch) return
     void runScanForUrl(urlFromSearch)
   }, [urlFromSearch])
 
@@ -85,7 +102,7 @@ function ScanPage() {
     setCheckoutError(null)
     try {
       const { url: checkoutUrl } = await createCheckoutSession({
-        data: { scanId: scan.result.id, email, domain: scan.result.url },
+        data: { scanId: scan.result.id, email, domain: normalizeDomain(scan.result.url) },
       })
       window.location.href = checkoutUrl
     } catch (err) {

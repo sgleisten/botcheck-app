@@ -176,7 +176,7 @@ function PrintReport() {
         <div style={{ fontWeight: 800, fontSize: 16, color: '#e8a054' }}>Want BotCheck to fix this for you?</div>
         <p style={{ margin: '8px 0 0', fontSize: 13, color: '#fdf8e1cc' }}>
           We build your AI profile, host it, and keep it current. Plans start at $299/mo.
-          Visit app.botcheck.io/pricing to get started.
+          Visit {(process.env.APP_URL ?? 'https://botcheck-app.vercel.app').replace(/\/+$/, '')}/pricing to get started.
         </p>
       </div>
     </div>

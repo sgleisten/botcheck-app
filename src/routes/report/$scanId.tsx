@@ -5,6 +5,7 @@ import {
   saveEmail,
   createCheckoutSession,
 } from '@/lib/scan.functions'
+import { normalizeDomain } from '@/lib/site-scan'
 import { ScanResultsView } from '@/components/scan/ScanResultsView'
 
 export const Route = createFileRoute('/report/$scanId')({
@@ -13,8 +14,9 @@ export const Route = createFileRoute('/report/$scanId')({
 })
 
 function ReportPage() {
-  const scan = Route.useLoaderData()
-  if (!scan) throw notFound()
+  const loaded = Route.useLoaderData()
+  if (!loaded) throw notFound()
+  const scan = loaded
 
   const [email, setEmail] = useState(scan.email ?? '')
   const [reportUnlocked, setReportUnlocked] = useState(Boolean(scan.email))
@@ -43,7 +45,7 @@ function ReportPage() {
     setCheckoutError(null)
     try {
       const { url: checkoutUrl } = await createCheckoutSession({
-        data: { scanId: scan.id, email, domain: scan.url },
+        data: { scanId: scan.id, email, domain: normalizeDomain(scan.url) },
       })
       window.location.href = checkoutUrl
     } catch (err) {

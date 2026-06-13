@@ -137,7 +137,7 @@ function OnboardingChat() {
           {!siteScan ? (
             <div className="border-2 border-orange bg-orange/20 p-4 text-sm text-teal">
               We don&apos;t have scan results for this site yet. Run a free scan at{' '}
-              <a href="https://botcheck.io" className="underline font-medium">botcheck.io</a> first, then return here
+              <a href="https://agent-site-score.vercel.app" className="underline font-medium">botcheck.io</a> first, then return here
               after checkout.
             </div>
           ) : (

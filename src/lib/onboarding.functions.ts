@@ -1,6 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
 import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@supabase/supabase-js'
 import { useSession } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import { supabaseAdmin } from '@/integrations/supabase/client.server'
@@ -13,11 +12,6 @@ import {
 } from './site-scan'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
 
 const ONBOARDING_INSTRUCTIONS = `\
 You are an AI presence specialist helping a small business owner set up their AI presence files \
@@ -57,6 +51,15 @@ these three top-level keys: "llms_txt", "tools_json", "robots_txt_additions". \
 "tools_json" must be a JSON array (not a string). "llms_txt" and "robots_txt_additions" \
 must be strings.`
 
+type OnboardingClient = {
+  id: string
+  domain: string
+  business_name: string | null
+  user_id: string | null
+  status: string
+  contact_email: string | null
+}
+
 async function loadSiteScanForClient(clientId: string, domain: string): Promise<SiteScan | null> {
   const { data: byClient } = await supabaseAdmin
     .from('scans')
@@ -85,6 +88,51 @@ async function loadSiteScanForClient(clientId: string, domain: string): Promise<
   return buildSiteScanFromRow(byDomain)
 }
 
+async function assertOnboardingAccess(
+  clientId: string,
+  returnPath?: string,
+): Promise<{ userId: string; client: OnboardingClient }> {
+  const session = await useSession<{ userId?: string }>(userSessionConfig())
+  const loginPath = returnPath ?? `/onboarding/${clientId}`
+
+  if (!session.data.userId) {
+    redirectToLogin(loginPath)
+  }
+
+  const userId = session.data.userId!
+
+  const { data: client, error } = await supabaseAdmin
+    .from('clients')
+    .select('id, domain, business_name, user_id, status, contact_email')
+    .eq('id', clientId)
+    .single()
+
+  if (error || !client) {
+    throw new Error('Client not found')
+  }
+
+  if (client.user_id === null) {
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.getUserById(userId)
+    if (authError || !authUser.user) {
+      throw new Error('Could not verify your account')
+    }
+
+    const userEmail = authUser.user.email?.toLowerCase()
+    const checkoutEmail = client.contact_email?.toLowerCase()
+
+    if (checkoutEmail && userEmail && checkoutEmail !== userEmail) {
+      throw new Error('Sign in with the email address from your checkout receipt.')
+    }
+
+    await supabaseAdmin.from('clients').update({ user_id: userId }).eq('id', clientId)
+    client.user_id = userId
+  } else if (client.user_id !== userId) {
+    throw new Error('You do not have access to this onboarding session.')
+  }
+
+  return { userId, client }
+}
+
 export const runOnboardingChat = createServerFn({ method: 'POST' })
   .validator((input: {
     clientId: string
@@ -92,6 +140,8 @@ export const runOnboardingChat = createServerFn({ method: 'POST' })
     siteScan: SiteScan
   }) => input)
   .handler(async ({ data }) => {
+    await assertOnboardingAccess(data.clientId)
+
     const { messages, siteScan } = data
 
     const response = await anthropic.messages.create({
@@ -129,7 +179,24 @@ export const generateProfile = createServerFn({ method: 'POST' })
     questionnaireAnswers: string
   }) => input)
   .handler(async ({ data }) => {
+    await assertOnboardingAccess(data.clientId)
+
     const { clientId, siteScan, questionnaireAnswers } = data
+
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, status')
+      .eq('client_id', clientId)
+      .in('status', ['pending_review', 'live'])
+      .maybeSingle()
+
+    if (existingProfile) {
+      throw new Error(
+        existingProfile.status === 'live'
+          ? 'Your profile is already live.'
+          : 'Your profile is already submitted for review.',
+      )
+    }
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -176,7 +243,7 @@ ${questionnaireAnswers}`,
 
     const { llms_txt, tools_json, robots_txt_additions } = parsed
 
-    const { data: inserted, error } = await supabase
+    const { data: inserted, error } = await supabaseAdmin
       .from('profiles')
       .insert({
         client_id: clientId,
@@ -217,30 +284,8 @@ ${questionnaireAnswers}`,
 export const getOnboardingData = createServerFn({ method: 'GET' })
   .validator((input: unknown) => z.object({ clientId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
-    const session = await useSession<{ userId?: string }>(userSessionConfig())
     const returnPath = `/onboarding/${data.clientId}`
-
-    if (!session.data.userId) {
-      redirectToLogin(returnPath)
-    }
-
-    const { data: client, error } = await supabaseAdmin
-      .from('clients')
-      .select('id, domain, business_name, user_id, status')
-      .eq('id', data.clientId)
-      .single()
-
-    if (error || !client) redirectToLogin(returnPath)
-
-    if (client.user_id === null) {
-      await supabaseAdmin
-        .from('clients')
-        .update({ user_id: session.data.userId })
-        .eq('id', data.clientId)
-    } else if (client.user_id !== session.data.userId) {
-      redirectToLogin(returnPath)
-    }
-
+    const { client } = await assertOnboardingAccess(data.clientId, returnPath)
     const siteScan = await loadSiteScanForClient(data.clientId, client.domain)
 
     return {
