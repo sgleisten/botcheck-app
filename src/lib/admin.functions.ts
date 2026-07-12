@@ -46,8 +46,22 @@ export const adminLogout = createServerFn({ method: 'POST' }).handler(async () =
 
 // ─── Dashboard data ────────────────────────────────────────────────────────────
 
-export const getAdminData = createServerFn({ method: 'GET' }).handler(async () => {
+const getAdminDataSchema = z.object({ includeArchived: z.boolean().optional() })
+
+export const getAdminData = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => getAdminDataSchema.parse(input ?? {}))
+  .handler(async ({ data }) => {
   await assertAdmin()
+
+  let clientsQuery = supabaseAdmin
+    .from('clients')
+    .select(
+      'id, domain, business_name, contact_email, status, plan, dns_verified, billing_type, quoted_monthly_cents, checkout_token, custom_hostname, custom_hostname_status, custom_hostname_error, notes, archived_at, created_at',
+    )
+    .order('created_at', { ascending: false })
+  if (!data.includeArchived) {
+    clientsQuery = clientsQuery.is('archived_at', null)
+  }
 
   const [profilesRes, clientsRes, scansRes, allProfilesRes] = await Promise.all([
     supabaseAdmin
@@ -56,16 +70,11 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
       .eq('status', 'pending_review')
       .order('created_at', { ascending: false }),
 
-    supabaseAdmin
-      .from('clients')
-      .select(
-        'id, domain, business_name, contact_email, status, plan, dns_verified, billing_type, quoted_monthly_cents, checkout_token, custom_hostname, custom_hostname_status, custom_hostname_error, created_at',
-      )
-      .order('created_at', { ascending: false }),
+    clientsQuery,
 
     supabaseAdmin
       .from('scans')
-      .select('id, url, ars_score, email, created_at')
+      .select('id, url, client_id, ars_score, email, created_at')
       .order('created_at', { ascending: false })
       .limit(50),
 
@@ -109,6 +118,8 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
       custom_hostname: string | null
       custom_hostname_status: string | null
       custom_hostname_error: string | null
+      notes: string | null
+      archived_at: string | null
       created_at: string
     }>
   ).map((c) => ({ ...c, profile: latestProfileByClient.get(c.id) ?? null }))
@@ -126,6 +137,7 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
     recentScans: scansRes.data as Array<{
       id: string
       url: string
+      client_id: string | null
       ars_score: number | null
       email: string | null
       created_at: string
@@ -366,4 +378,79 @@ export const markClientPaid = createServerFn({ method: 'POST' })
     }
 
     return { ok: true, onboardingUrl: onboardingUrl(data.clientId) }
+  })
+
+// ─── Client edit / archive ──────────────────────────────────────────────────
+
+const updateClientSchema = z.object({
+  clientId: z.string().uuid(),
+  domain: z.string().min(3).max(255),
+  businessName: z.string().max(255).optional(),
+  contactEmail: z.string().email(),
+  plan: z.enum(['starter', 'agency']),
+  status: z.enum(['pending_payment', 'onboarding', 'active', 'past_due', 'cancelled']),
+  notes: z.string().max(2000).optional(),
+})
+
+export const updateClient = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => updateClientSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { error } = await supabaseAdmin
+      .from('clients')
+      .update({
+        domain: data.domain,
+        business_name: data.businessName?.trim() || null,
+        contact_email: data.contactEmail,
+        plan: data.plan,
+        status: data.status,
+        notes: data.notes?.trim() || null,
+      })
+      .eq('id', data.clientId)
+
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
+
+const clientIdSchema = z.object({ clientId: z.string().uuid() })
+
+export const archiveClient = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { error } = await supabaseAdmin
+      .from('clients')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', data.clientId)
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
+
+export const unarchiveClient = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { error } = await supabaseAdmin
+      .from('clients')
+      .update({ archived_at: null })
+      .eq('id', data.clientId)
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
+
+// ─── Scan re-run ─────────────────────────────────────────────────────────────
+
+const rerunScanSchema = z.object({
+  url: z.string().url().max(2048),
+  clientId: z.string().uuid().optional(),
+})
+
+export const rerunScan = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => rerunScanSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { performScan } = await import('./scan.functions')
+    const result = await performScan(data.url, data.clientId)
+    return { id: result.id, ars_score: result.ars_score }
   })

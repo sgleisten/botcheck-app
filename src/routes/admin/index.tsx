@@ -9,16 +9,62 @@ import {
   createManualClient,
   getClientProfile,
   updateProfile,
+  updateClient,
+  archiveClient,
+  unarchiveClient,
+  rerunScan,
 } from '@/lib/admin.functions'
-import { runScan } from '@/lib/scan.functions'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 
 export const Route = createFileRoute('/admin/')({
-  loader: () => getAdminData(),
+  loader: () => getAdminData({ data: {} }),
   component: AdminDashboard,
 })
+
+type SortDir = 'asc' | 'desc'
+
+function sortRows<T>(
+  rows: T[],
+  key: string | null,
+  dir: SortDir,
+  accessor: (row: T, key: string) => string | number,
+): T[] {
+  if (!key) return rows
+  const sorted = [...rows].sort((a, b) => {
+    const av = accessor(a, key)
+    const bv = accessor(b, key)
+    if (av < bv) return -1
+    if (av > bv) return 1
+    return 0
+  })
+  return dir === 'asc' ? sorted : sorted.reverse()
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  activeKey,
+  dir,
+  onSort,
+}: {
+  label: string
+  sortKey: string
+  activeKey: string | null
+  dir: SortDir
+  onSort: (key: string) => void
+}) {
+  const active = activeKey === sortKey
+  return (
+    <th
+      className="px-4 py-2 text-left cursor-pointer select-none hover:text-orange"
+      onClick={() => onSort(sortKey)}
+    >
+      {label} {active ? (dir === 'asc' ? '▲' : '▼') : ''}
+    </th>
+  )
+}
 
 function fmt(iso: string | null) {
   if (!iso) return '—'
@@ -111,6 +157,173 @@ function AdminDashboard() {
   const [rowMsg, setRowMsg] = useState<Record<string, string>>({})
   const [panel, setPanel] = useState<ProfilePanel | null>(null)
 
+  // ─── Show archived clients ───
+  const [showArchived, setShowArchived] = useState(false)
+  const [archivedClients, setArchivedClients] = useState<typeof clients | null>(null)
+  const [loadingArchived, setLoadingArchived] = useState(false)
+
+  async function refreshClients() {
+    if (showArchived) {
+      const result = await getAdminData({ data: { includeArchived: true } })
+      setArchivedClients(result.clients)
+    }
+    await router.invalidate()
+  }
+
+  async function toggleShowArchived() {
+    if (showArchived) {
+      setShowArchived(false)
+      return
+    }
+    setLoadingArchived(true)
+    try {
+      const result = await getAdminData({ data: { includeArchived: true } })
+      setArchivedClients(result.clients)
+      setShowArchived(true)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to load archived clients')
+    } finally {
+      setLoadingArchived(false)
+    }
+  }
+
+  const displayedClients = showArchived && archivedClients ? archivedClients : clients
+
+  // ─── Sorting ───
+  const [clientSort, setClientSort] = useState<{ key: string | null; dir: SortDir }>({
+    key: null,
+    dir: 'asc',
+  })
+  const [scanSort, setScanSort] = useState<{ key: string | null; dir: SortDir }>({
+    key: null,
+    dir: 'asc',
+  })
+
+  function toggleSort(
+    current: { key: string | null; dir: SortDir },
+    set: (v: { key: string | null; dir: SortDir }) => void,
+    key: string,
+  ) {
+    if (current.key === key) {
+      set({ key, dir: current.dir === 'asc' ? 'desc' : 'asc' })
+    } else {
+      set({ key, dir: 'asc' })
+    }
+  }
+
+  const sortedClients = sortRows(displayedClients, clientSort.key, clientSort.dir, (c, key) => {
+    if (key === 'hasEmail') return c.contact_email ? 1 : 0
+    if (key === 'created') return c.created_at
+    if (key === 'status') return c.status
+    return ''
+  })
+
+  const sortedScans = sortRows(recentScans, scanSort.key, scanSort.dir, (s, key) => {
+    if (key === 'hasEmail') return s.email ? 1 : 0
+    if (key === 'ars') return s.ars_score ?? -1
+    if (key === 'created') return s.created_at
+    return ''
+  })
+
+  // ─── Edit client ───
+  type EditState = {
+    clientId: string
+    domain: string
+    businessName: string
+    contactEmail: string
+    plan: PlanOption
+    status: string
+    notes: string
+    saving: boolean
+    error: string | null
+  }
+  const [edit, setEdit] = useState<EditState | null>(null)
+
+  function openEdit(c: (typeof clients)[number]) {
+    setEdit({
+      clientId: c.id,
+      domain: c.domain,
+      businessName: c.business_name ?? '',
+      contactEmail: c.contact_email ?? '',
+      plan: (c.plan as PlanOption) ?? 'starter',
+      status: c.status,
+      notes: c.notes ?? '',
+      saving: false,
+      error: null,
+    })
+  }
+
+  async function saveEdit() {
+    if (!edit) return
+    setEdit((p) => (p ? { ...p, saving: true, error: null } : p))
+    try {
+      await updateClient({
+        data: {
+          clientId: edit.clientId,
+          domain: edit.domain,
+          businessName: edit.businessName || undefined,
+          contactEmail: edit.contactEmail,
+          plan: edit.plan,
+          status: edit.status as
+            | 'pending_payment'
+            | 'onboarding'
+            | 'active'
+            | 'past_due'
+            | 'cancelled',
+          notes: edit.notes || undefined,
+        },
+      })
+      setEdit(null)
+      await refreshClients()
+    } catch (err) {
+      setEdit((p) =>
+        p ? { ...p, saving: false, error: err instanceof Error ? err.message : 'Save failed' } : p,
+      )
+    }
+  }
+
+  async function handleArchive(clientId: string) {
+    if (!window.confirm('Archive this client? It will be hidden from the default list. Profiles and scan history are kept, and you can unarchive it any time.')) {
+      return
+    }
+    setBusy(clientId, 'Archiving…')
+    try {
+      await archiveClient({ data: { clientId } })
+      await refreshClients()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to archive')
+    } finally {
+      setBusy(clientId, null)
+    }
+  }
+
+  async function handleUnarchive(clientId: string) {
+    setBusy(clientId, 'Restoring…')
+    try {
+      await unarchiveClient({ data: { clientId } })
+      await refreshClients()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to unarchive')
+    } finally {
+      setBusy(clientId, null)
+    }
+  }
+
+  async function handleRerunScan(url: string, clientId?: string) {
+    const key = clientId ?? url
+    setBusy(key, 'Scanning…')
+    setRowMsg((m) => ({ ...m, [key]: '' }))
+    try {
+      const result = await rerunScan({ data: { url: ensureHttps(url), clientId } })
+      setRowMsg((m) => ({ ...m, [key]: `Scan done — ARS ${result.ars_score}` }))
+      await refreshClients()
+    } catch (err) {
+      setRowMsg((m) => ({ ...m, [key]: err instanceof Error ? err.message : 'Scan failed' }))
+    } finally {
+      setBusy(key, null)
+    }
+  }
+
   function setBusy(id: string, label: string | null) {
     setRowBusy((prev) => {
       const next = { ...prev }
@@ -126,7 +339,7 @@ function AdminDashboard() {
     try {
       await approveProfile({ data: { profileId } })
       setApproved((prev) => new Set([...prev, profileId]))
-      await router.invalidate()
+      await refreshClients()
     } catch (err) {
       setApproveError(err instanceof Error ? err.message : 'Failed to approve')
     } finally {
@@ -156,7 +369,7 @@ function AdminDashboard() {
         },
       })
       setDealResult(result)
-      await router.invalidate()
+      await refreshClients()
     } catch (err) {
       setDealError(err instanceof Error ? err.message : 'Failed to create deal')
     } finally {
@@ -190,28 +403,11 @@ function AdminDashboard() {
     try {
       const result = await markClientPaid({ data: { clientId } })
       await copyText(result.onboardingUrl, `paid-${clientId}`)
-      await router.invalidate()
+      await refreshClients()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to mark paid')
     } finally {
       setMarkingPaid(null)
-    }
-  }
-
-  async function handleRunScan(clientId: string, dom: string) {
-    setBusy(clientId, 'Scanning…')
-    setRowMsg((m) => ({ ...m, [clientId]: '' }))
-    try {
-      const result = await runScan({ data: { url: ensureHttps(dom) } })
-      setRowMsg((m) => ({ ...m, [clientId]: `Scan done — ARS ${result.ars_score}` }))
-      await router.invalidate()
-    } catch (err) {
-      setRowMsg((m) => ({
-        ...m,
-        [clientId]: err instanceof Error ? err.message : 'Scan failed',
-      }))
-    } finally {
-      setBusy(clientId, null)
     }
   }
 
@@ -234,7 +430,7 @@ function AdminDashboard() {
             ? `Hostname error: ${result.error ?? 'unknown'}`
             : `Hostname ${result.hostname} → ${result.status}`,
       }))
-      await router.invalidate()
+      await refreshClients()
     } catch (err) {
       setRowMsg((m) => ({
         ...m,
@@ -257,7 +453,7 @@ function AdminDashboard() {
             ? `Hostname error: ${result.error ?? 'unknown'}`
             : `Hostname ${result.status}`,
       }))
-      await router.invalidate()
+      await refreshClients()
     } catch (err) {
       setRowMsg((m) => ({
         ...m,
@@ -330,7 +526,7 @@ function AdminDashboard() {
       })
       await approveProfile({ data: { profileId: panel.profileId } })
       setPanel(null)
-      await router.invalidate()
+      await refreshClients()
     } catch (err) {
       setPanel((p) =>
         p
@@ -623,28 +819,58 @@ function AdminDashboard() {
 
       {/* Clients */}
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-teal/60 mb-2">
-          Clients ({clients.length})
-        </h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-teal/60">
+            {showArchived ? 'Archived Clients' : 'Clients'} ({sortedClients.length})
+          </h2>
+          <button
+            type="button"
+            onClick={() => void toggleShowArchived()}
+            disabled={loadingArchived}
+            className="text-xs text-teal underline disabled:opacity-50"
+          >
+            {loadingArchived ? 'Loading…' : showArchived ? 'Hide archived' : 'Show archived'}
+          </button>
+        </div>
         <div className="overflow-x-auto border-2 border-teal bg-cream card-shadow">
           <table className="w-full text-sm">
             <thead className="bg-teal text-cream text-xs uppercase">
               <tr>
                 <th className="px-4 py-2 text-left">Domain</th>
                 <th className="px-4 py-2 text-left">Plan</th>
-                <th className="px-4 py-2 text-left">Status</th>
+                <SortHeader
+                  label="Status"
+                  sortKey="status"
+                  activeKey={clientSort.key}
+                  dir={clientSort.dir}
+                  onSort={(key) => toggleSort(clientSort, setClientSort, key)}
+                />
+                <SortHeader
+                  label="Has Email"
+                  sortKey="hasEmail"
+                  activeKey={clientSort.key}
+                  dir={clientSort.dir}
+                  onSort={(key) => toggleSort(clientSort, setClientSort, key)}
+                />
+                <SortHeader
+                  label="Created"
+                  sortKey="created"
+                  activeKey={clientSort.key}
+                  dir={clientSort.dir}
+                  onSort={(key) => toggleSort(clientSort, setClientSort, key)}
+                />
                 <th className="px-4 py-2 text-left">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-teal/20">
-              {clients.length === 0 ? (
+              {sortedClients.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-4 text-center text-teal/50">
-                    No clients yet.
+                  <td colSpan={6} className="px-4 py-4 text-center text-teal/50">
+                    {showArchived ? 'No archived clients.' : 'No clients yet.'}
                   </td>
                 </tr>
               ) : (
-                clients.map((c) => (
+                sortedClients.map((c) => (
                   <tr key={c.id} className="hover:bg-orange/10 align-top">
                     <td className="px-4 py-3">
                       <p className="font-medium text-teal">{c.domain}</p>
@@ -680,21 +906,33 @@ function AdminDashboard() {
                     <td className="px-4 py-3">
                       <StatusBadge status={c.status} />
                     </td>
+                    <td className="px-4 py-3 text-teal/60">{c.contact_email ? 'Yes' : 'No'}</td>
+                    <td className="px-4 py-3 text-teal/60">{fmt(c.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
-                        <a
-                          href={`/onboarding/${c.id}`}
-                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5"
-                        >
-                          Onboarding
-                        </a>
                         <button
                           type="button"
-                          onClick={() => handleRunScan(c.id, c.domain)}
+                          onClick={() => openEdit(c)}
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            copyText(`${window.location.origin}/onboarding/${c.id}`, `link-${c.id}`)
+                          }
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5"
+                        >
+                          {copied === `link-${c.id}` ? 'Copied!' : 'Copy Onboarding Link'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRerunScan(c.domain, c.id)}
                           disabled={!!rowBusy[c.id]}
                           className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
                         >
-                          Run Scan
+                          Re-run Scan
                         </button>
                         <button
                           type="button"
@@ -752,6 +990,25 @@ function AdminDashboard() {
                             {markingPaid === c.id ? '…' : 'Mark paid'}
                           </button>
                         )}
+                        {showArchived ? (
+                          <button
+                            type="button"
+                            onClick={() => handleUnarchive(c.id)}
+                            disabled={!!rowBusy[c.id]}
+                            className="text-xs border border-green text-green px-2 py-1 rounded hover:bg-green/5 disabled:opacity-50"
+                          >
+                            Unarchive
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleArchive(c.id)}
+                            disabled={!!rowBusy[c.id]}
+                            className="text-xs border border-coral text-coral px-2 py-1 rounded hover:bg-coral/5 disabled:opacity-50"
+                          >
+                            Archive
+                          </button>
+                        )}
                       </div>
                       {(rowBusy[c.id] || rowMsg[c.id]) && (
                         <p className="text-xs text-teal/60 mt-1.5">
@@ -770,27 +1027,46 @@ function AdminDashboard() {
       {/* Recent scans */}
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-teal/60 mb-2">
-          Recent Scans ({recentScans.length})
+          Recent Scans ({sortedScans.length})
         </h2>
         <div className="overflow-x-auto border-2 border-teal bg-cream card-shadow">
           <table className="w-full text-sm">
             <thead className="bg-teal text-cream text-xs uppercase">
               <tr>
                 <th className="px-4 py-2 text-left">URL</th>
-                <th className="px-4 py-2 text-left">ARS</th>
-                <th className="px-4 py-2 text-left">Email</th>
-                <th className="px-4 py-2 text-left">Scanned</th>
+                <SortHeader
+                  label="ARS"
+                  sortKey="ars"
+                  activeKey={scanSort.key}
+                  dir={scanSort.dir}
+                  onSort={(key) => toggleSort(scanSort, setScanSort, key)}
+                />
+                <SortHeader
+                  label="Has Email"
+                  sortKey="hasEmail"
+                  activeKey={scanSort.key}
+                  dir={scanSort.dir}
+                  onSort={(key) => toggleSort(scanSort, setScanSort, key)}
+                />
+                <SortHeader
+                  label="Scanned"
+                  sortKey="created"
+                  activeKey={scanSort.key}
+                  dir={scanSort.dir}
+                  onSort={(key) => toggleSort(scanSort, setScanSort, key)}
+                />
+                <th className="px-4 py-2 text-left">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-teal/20">
-              {recentScans.length === 0 ? (
+              {sortedScans.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-4 text-center text-teal/50">
+                  <td colSpan={5} className="px-4 py-4 text-center text-teal/50">
                     No scans yet.
                   </td>
                 </tr>
               ) : (
-                recentScans.map((s) => (
+                sortedScans.map((s) => (
                   <tr key={s.id} className="hover:bg-orange/10">
                     <td className="px-4 py-2 max-w-xs truncate text-teal/80">{s.url}</td>
                     <td className="px-4 py-2 font-semibold">
@@ -810,8 +1086,23 @@ function AdminDashboard() {
                         '—'
                       )}
                     </td>
-                    <td className="px-4 py-2 text-teal/60">{s.email ?? '—'}</td>
+                    <td className="px-4 py-2 text-teal/60">{s.email ? 'Yes' : 'No'}</td>
                     <td className="px-4 py-2 text-teal/60">{fmt(s.created_at)}</td>
+                    <td className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRerunScan(s.url, s.client_id ?? undefined)}
+                        disabled={!!rowBusy[s.client_id ?? s.url]}
+                        className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
+                      >
+                        Duplicate
+                      </button>
+                      {(rowBusy[s.client_id ?? s.url] || rowMsg[s.client_id ?? s.url]) && (
+                        <p className="text-xs text-teal/60 mt-1">
+                          {rowBusy[s.client_id ?? s.url] ?? rowMsg[s.client_id ?? s.url]}
+                        </p>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
@@ -894,6 +1185,102 @@ function AdminDashboard() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit client panel */}
+      {edit && (
+        <div
+          className="fixed inset-0 z-50 bg-teal-dark/40 flex items-start justify-center overflow-y-auto p-4"
+          onClick={() => setEdit(null)}
+        >
+          <div
+            className="bg-cream border-2 border-teal card-shadow w-full max-w-2xl my-8 p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-teal">Edit client</h3>
+              <button
+                onClick={() => setEdit(null)}
+                className="text-sm text-teal/60 hover:text-teal"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-teal/60 mb-1">Domain</label>
+                <input
+                  value={edit.domain}
+                  onChange={(e) => setEdit((p) => (p ? { ...p, domain: e.target.value } : p))}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-teal/60 mb-1">Business name</label>
+                <input
+                  value={edit.businessName}
+                  onChange={(e) =>
+                    setEdit((p) => (p ? { ...p, businessName: e.target.value } : p))
+                  }
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-teal/60 mb-1">Contact email</label>
+                <input
+                  type="email"
+                  value={edit.contactEmail}
+                  onChange={(e) =>
+                    setEdit((p) => (p ? { ...p, contactEmail: e.target.value } : p))
+                  }
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-teal/60 mb-1">Plan</label>
+                <select
+                  value={edit.plan}
+                  onChange={(e) =>
+                    setEdit((p) => (p ? { ...p, plan: e.target.value as PlanOption } : p))
+                  }
+                  className="input-field"
+                >
+                  <option value="starter">Starter</option>
+                  <option value="agency">Agency</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-teal/60 mb-1">Status</label>
+                <select
+                  value={edit.status}
+                  onChange={(e) => setEdit((p) => (p ? { ...p, status: e.target.value } : p))}
+                  className="input-field"
+                >
+                  <option value="pending_payment">Pending payment</option>
+                  <option value="onboarding">Onboarding</option>
+                  <option value="active">Active</option>
+                  <option value="past_due">Past due</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-teal/60 mb-1">Notes</label>
+                <textarea
+                  value={edit.notes}
+                  onChange={(e) => setEdit((p) => (p ? { ...p, notes: e.target.value } : p))}
+                  className="input-field min-h-[72px]"
+                  placeholder="Anything you want to remember about this client…"
+                />
+              </div>
+            </div>
+
+            {edit.error && <p className="text-sm text-coral">{edit.error}</p>}
+            <Button onClick={saveEdit} disabled={edit.saving}>
+              {edit.saving ? 'Saving…' : 'Save changes'}
+            </Button>
           </div>
         </div>
       )}

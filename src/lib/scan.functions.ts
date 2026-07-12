@@ -123,21 +123,26 @@ function pickSubpages(links: string[] | undefined, baseUrl: string, max = 3): st
   return picked
 }
 
-export const runScan = createServerFn({ method: 'POST' })
-  .validator((input: unknown) => inputSchema.parse(input))
-  .handler(async ({ data }): Promise<ScanResult> => {
+/**
+ * Core scan pipeline: scrape, analyze with Claude, score, and persist.
+ * Shared by the public `runScan` (unauthenticated, never sets client_id — a
+ * raw client_id param on a public endpoint would let anyone attach a scan to
+ * someone else's client record) and the admin-only `rerunScan` in
+ * admin.functions.ts, which passes clientId to link the result back.
+ */
+export async function performScan(url: string, clientId?: string): Promise<ScanResult> {
     const firecrawlKey = process.env.FIRECRAWL_API_KEY
     if (!firecrawlKey) throw new Error('FIRECRAWL_API_KEY is not configured')
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not configured')
 
     // 1. Scrape root page
-    const root = await firecrawlScrape(data.url, firecrawlKey)
+    const root = await firecrawlScrape(url, firecrawlKey)
     const sections: { url: string; markdown: string }[] = [
-      { url: data.url, markdown: root.markdown ?? '' },
+      { url, markdown: root.markdown ?? '' },
     ]
 
     // 2. Scrape up to 3 subpages
-    const subpages = pickSubpages(root.links, data.url)
+    const subpages = pickSubpages(root.links, url)
     const subResults = await Promise.allSettled(
       subpages.map((u) =>
         firecrawlScrape(u, firecrawlKey).then((r) => ({ url: u, markdown: r.markdown ?? '' })),
@@ -216,19 +221,20 @@ Return ONLY valid JSON, no other text:
       parsed = JSON.parse(match[0])
     }
 
-    parsed.before_after = normalizeBeforeAfter(parsed.before_after, data.url)
+    parsed.before_after = normalizeBeforeAfter(parsed.before_after, url)
 
     // 5. Store in DB
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
     const { data: inserted, error } = await supabaseAdmin
       .from('scans')
       .insert({
-        url: data.url,
+        url,
         ars_score: parsed.ars_score,
         categories: parsed.categories,
         top_failures: parsed.top_failures,
         quick_wins: parsed.quick_wins,
         diff: parsed.before_after,
+        ...(clientId ? { client_id: clientId } : {}),
       })
       .select('id')
       .single()
@@ -237,8 +243,12 @@ Return ONLY valid JSON, no other text:
       throw new Error(`Failed to save scan: ${error?.message ?? 'unknown'}`)
     }
 
-    return { id: inserted.id, url: data.url, ...parsed }
-  })
+    return { id: inserted.id, url, ...parsed }
+}
+
+export const runScan = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => inputSchema.parse(input))
+  .handler(async ({ data }): Promise<ScanResult> => performScan(data.url))
 
 export const saveEmail = createServerFn({ method: 'POST' })
   .validator((input: unknown) => emailSchema.parse(input))
