@@ -6,8 +6,12 @@ import {
   adminLogout,
   createClientDeal,
   markClientPaid,
+  createManualClient,
+  getClientProfile,
+  updateProfile,
 } from '@/lib/admin.functions'
-import { formatMonthlyPrice } from '@/lib/billing'
+import { runScan } from '@/lib/scan.functions'
+import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 
@@ -26,7 +30,44 @@ function fmt(iso: string | null) {
   })
 }
 
+function ensureHttps(domain: string) {
+  return /^https?:\/\//i.test(domain) ? domain : `https://${domain}`
+}
+
+const STATUS_STYLES: Record<string, string> = {
+  pending_payment: 'bg-gray-200 text-gray-700',
+  onboarding: 'bg-yellow-200 text-yellow-900',
+  pending_review: 'bg-orange/30 text-teal',
+  active: 'bg-green/40 text-teal',
+  live: 'bg-green/40 text-teal',
+  past_due: 'bg-coral/25 text-coral',
+  cancelled: 'bg-coral/25 text-coral',
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const cls = STATUS_STYLES[status] ?? 'bg-teal/10 text-teal/70'
+  return (
+    <span className={`inline-block px-2 py-0.5 text-xs font-semibold rounded ${cls}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  )
+}
+
 type BillingTypeOption = 'custom_checkout' | 'invoice' | 'comped'
+type PlanOption = 'starter' | 'agency'
+
+type ProfilePanel = {
+  clientId: string
+  domain: string
+  profileId: string | null
+  status: string | null
+  llmsTxt: string
+  toolsJson: string
+  loading: boolean
+  saving: boolean
+  error: string | null
+  approving: boolean
+}
 
 function AdminDashboard() {
   const router = useRouter()
@@ -36,6 +77,7 @@ function AdminDashboard() {
   const [approving, setApproving] = useState<string | null>(null)
   const [approveError, setApproveError] = useState<string | null>(null)
 
+  // ─── Create deal (existing) ───
   const [dealOpen, setDealOpen] = useState(false)
   const [dealLoading, setDealLoading] = useState(false)
   const [dealError, setDealError] = useState<string | null>(null)
@@ -44,7 +86,6 @@ function AdminDashboard() {
     onboardingUrl: string
     billingType: string
   } | null>(null)
-
   const [domain, setDomain] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [businessName, setBusinessName] = useState('')
@@ -52,8 +93,32 @@ function AdminDashboard() {
   const [monthlyPrice, setMonthlyPrice] = useState('')
   const [stripePriceId, setStripePriceId] = useState('')
 
+  // ─── Add client (manual onboarding) ───
+  const [addOpen, setAddOpen] = useState(false)
+  const [addLoading, setAddLoading] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+  const [add, setAdd] = useState({
+    domain: '',
+    businessName: '',
+    contactEmail: '',
+    plan: 'starter' as PlanOption,
+    notes: '',
+  })
+
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [rowBusy, setRowBusy] = useState<Record<string, string>>({})
+  const [rowMsg, setRowMsg] = useState<Record<string, string>>({})
+  const [panel, setPanel] = useState<ProfilePanel | null>(null)
+
+  function setBusy(id: string, label: string | null) {
+    setRowBusy((prev) => {
+      const next = { ...prev }
+      if (label) next[id] = label
+      else delete next[id]
+      return next
+    })
+  }
 
   async function handleApprove(profileId: string) {
     setApproving(profileId)
@@ -61,6 +126,7 @@ function AdminDashboard() {
     try {
       await approveProfile({ data: { profileId } })
       setApproved((prev) => new Set([...prev, profileId]))
+      await router.invalidate()
     } catch (err) {
       setApproveError(err instanceof Error ? err.message : 'Failed to approve')
     } finally {
@@ -98,6 +164,27 @@ function AdminDashboard() {
     }
   }
 
+  async function handleAddClient(e: React.FormEvent) {
+    e.preventDefault()
+    setAddLoading(true)
+    setAddError(null)
+    try {
+      const result = await createManualClient({
+        data: {
+          domain: add.domain,
+          businessName: add.businessName,
+          contactEmail: add.contactEmail,
+          plan: add.plan,
+          notes: add.notes || undefined,
+        },
+      })
+      await router.navigate({ to: '/onboarding/$clientId', params: { clientId: result.clientId } })
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add client')
+      setAddLoading(false)
+    }
+  }
+
   async function handleMarkPaid(clientId: string) {
     setMarkingPaid(clientId)
     try {
@@ -108,6 +195,148 @@ function AdminDashboard() {
       alert(err instanceof Error ? err.message : 'Failed to mark paid')
     } finally {
       setMarkingPaid(null)
+    }
+  }
+
+  async function handleRunScan(clientId: string, dom: string) {
+    setBusy(clientId, 'Scanning…')
+    setRowMsg((m) => ({ ...m, [clientId]: '' }))
+    try {
+      const result = await runScan({ data: { url: ensureHttps(dom) } })
+      setRowMsg((m) => ({ ...m, [clientId]: `Scan done — ARS ${result.ars_score}` }))
+      await router.invalidate()
+    } catch (err) {
+      setRowMsg((m) => ({
+        ...m,
+        [clientId]: err instanceof Error ? err.message : 'Scan failed',
+      }))
+    } finally {
+      setBusy(clientId, null)
+    }
+  }
+
+  async function handleSetupHostname(clientId: string, currentHostname: string | null) {
+    const suggested = currentHostname ?? 'ai.'
+    const input = window.prompt(
+      'Custom hostname for this client (e.g. ai.midstatehealth.net):',
+      suggested,
+    )
+    if (!input || !input.trim()) return
+
+    setBusy(clientId, 'Registering hostname…')
+    setRowMsg((m) => ({ ...m, [clientId]: '' }))
+    try {
+      const result = await setupCustomHostname({ data: { clientId, hostname: input.trim() } })
+      setRowMsg((m) => ({
+        ...m,
+        [clientId]:
+          result.status === 'error'
+            ? `Hostname error: ${result.error ?? 'unknown'}`
+            : `Hostname ${result.hostname} → ${result.status}`,
+      }))
+      await router.invalidate()
+    } catch (err) {
+      setRowMsg((m) => ({
+        ...m,
+        [clientId]: err instanceof Error ? err.message : 'Hostname setup failed',
+      }))
+    } finally {
+      setBusy(clientId, null)
+    }
+  }
+
+  async function handleRefreshHostname(clientId: string) {
+    setBusy(clientId, 'Checking hostname…')
+    setRowMsg((m) => ({ ...m, [clientId]: '' }))
+    try {
+      const result = await refreshHostnameStatus({ data: { clientId } })
+      setRowMsg((m) => ({
+        ...m,
+        [clientId]:
+          result.status === 'error'
+            ? `Hostname error: ${result.error ?? 'unknown'}`
+            : `Hostname ${result.status}`,
+      }))
+      await router.invalidate()
+    } catch (err) {
+      setRowMsg((m) => ({
+        ...m,
+        [clientId]: err instanceof Error ? err.message : 'Hostname check failed',
+      }))
+    } finally {
+      setBusy(clientId, null)
+    }
+  }
+
+  async function openProfile(clientId: string, dom: string) {
+    setPanel({
+      clientId,
+      domain: dom,
+      profileId: null,
+      status: null,
+      llmsTxt: '',
+      toolsJson: '',
+      loading: true,
+      saving: false,
+      error: null,
+      approving: false,
+    })
+    try {
+      const p = await getClientProfile({ data: { clientId } })
+      setPanel((prev) =>
+        prev && prev.clientId === clientId
+          ? {
+              ...prev,
+              loading: false,
+              profileId: p?.id ?? null,
+              status: p?.status ?? null,
+              llmsTxt: p?.llmsTxt ?? '',
+              toolsJson: p?.toolsJson ?? '',
+              error: p ? null : 'No profile generated yet for this client.',
+            }
+          : prev,
+      )
+    } catch (err) {
+      setPanel((prev) =>
+        prev && prev.clientId === clientId
+          ? { ...prev, loading: false, error: err instanceof Error ? err.message : 'Load failed' }
+          : prev,
+      )
+    }
+  }
+
+  async function saveProfile() {
+    if (!panel?.profileId) return
+    setPanel((p) => (p ? { ...p, saving: true, error: null } : p))
+    try {
+      await updateProfile({
+        data: { profileId: panel.profileId, llmsTxt: panel.llmsTxt, toolsJson: panel.toolsJson },
+      })
+      setPanel((p) => (p ? { ...p, saving: false } : p))
+    } catch (err) {
+      setPanel((p) =>
+        p ? { ...p, saving: false, error: err instanceof Error ? err.message : 'Save failed' } : p,
+      )
+    }
+  }
+
+  async function approveFromPanel() {
+    if (!panel?.profileId) return
+    setPanel((p) => (p ? { ...p, approving: true, error: null } : p))
+    try {
+      // Save edits first, then approve.
+      await updateProfile({
+        data: { profileId: panel.profileId, llmsTxt: panel.llmsTxt, toolsJson: panel.toolsJson },
+      })
+      await approveProfile({ data: { profileId: panel.profileId } })
+      setPanel(null)
+      await router.invalidate()
+    } catch (err) {
+      setPanel((p) =>
+        p
+          ? { ...p, approving: false, error: err instanceof Error ? err.message : 'Approve failed' }
+          : p,
+      )
     }
   }
 
@@ -123,13 +352,92 @@ function AdminDashboard() {
     <div className="min-h-screen bg-cream p-6 space-y-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between border-b-2 border-teal pb-4">
         <h1 className="text-2xl font-extrabold text-teal">Admin</h1>
-        <button
-          onClick={handleLogout}
-          className="text-sm text-teal/60 hover:text-teal font-medium"
-        >
-          Sign out
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              setAddOpen((v) => !v)
+              setDealOpen(false)
+            }}
+            className="bg-teal text-cream px-4 py-2 text-sm font-semibold rounded hover:opacity-90"
+          >
+            + Add Client
+          </button>
+          <button
+            onClick={handleLogout}
+            className="text-sm text-teal/60 hover:text-teal font-medium"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
+
+      {/* Add client (manual onboarding) */}
+      {addOpen && (
+        <Card className="space-y-4">
+          <p className="text-sm text-teal/70">
+            Create a client manually (no Stripe). Sets status to <strong>onboarding</strong> and
+            takes you straight into the onboarding chat to complete it on their behalf.
+          </p>
+          <form onSubmit={handleAddClient} className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-teal/60 mb-1">Domain *</label>
+              <input
+                required
+                value={add.domain}
+                onChange={(e) => setAdd({ ...add, domain: e.target.value })}
+                className="input-field"
+                placeholder="example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-teal/60 mb-1">Business name *</label>
+              <input
+                required
+                value={add.businessName}
+                onChange={(e) => setAdd({ ...add, businessName: e.target.value })}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-teal/60 mb-1">Contact email *</label>
+              <input
+                required
+                type="email"
+                value={add.contactEmail}
+                onChange={(e) => setAdd({ ...add, contactEmail: e.target.value })}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-teal/60 mb-1">Plan</label>
+              <select
+                value={add.plan}
+                onChange={(e) => setAdd({ ...add, plan: e.target.value as PlanOption })}
+                className="input-field"
+              >
+                <option value="starter">Starter</option>
+                <option value="agency">Agency</option>
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-teal/60 mb-1">Notes (optional)</label>
+              <textarea
+                value={add.notes}
+                onChange={(e) => setAdd({ ...add, notes: e.target.value })}
+                className="input-field min-h-[72px]"
+                placeholder="Anything you want to remember about this client…"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              {addError && <p className="text-sm text-coral mb-3">{addError}</p>}
+              <Button type="submit" disabled={addLoading}>
+                {addLoading ? 'Creating…' : 'Create & start onboarding →'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
 
       {/* Create deal */}
       <section>
@@ -138,7 +446,7 @@ function AdminDashboard() {
           onClick={() => setDealOpen((v) => !v)}
           className="text-sm font-semibold uppercase tracking-wide text-teal/60 hover:text-teal mb-3"
         >
-          {dealOpen ? '− Create deal' : '+ Create deal'}
+          {dealOpen ? '− Create deal' : '+ Create deal (custom pricing / invoice / comped)'}
         </button>
 
         {dealOpen && (
@@ -193,9 +501,7 @@ function AdminDashboard() {
               {billingType === 'custom_checkout' && (
                 <>
                   <div>
-                    <label className="block text-xs text-teal/60 mb-1">
-                      Monthly price (USD)
-                    </label>
+                    <label className="block text-xs text-teal/60 mb-1">Monthly price (USD)</label>
                     <input
                       type="number"
                       min="1"
@@ -207,9 +513,7 @@ function AdminDashboard() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-teal/60 mb-1">
-                      Or Stripe Price ID
-                    </label>
+                    <label className="block text-xs text-teal/60 mb-1">Or Stripe Price ID</label>
                     <input
                       value={stripePriceId}
                       onChange={(e) => setStripePriceId(e.target.value)}
@@ -221,9 +525,7 @@ function AdminDashboard() {
               )}
 
               <div className="sm:col-span-2">
-                {dealError && (
-                  <p className="text-sm text-coral mb-3">{dealError}</p>
-                )}
+                {dealError && <p className="text-sm text-coral mb-3">{dealError}</p>}
                 <Button type="submit" disabled={dealLoading}>
                   {dealLoading ? 'Creating…' : 'Create deal'}
                 </Button>
@@ -261,16 +563,6 @@ function AdminDashboard() {
                     {copied === 'onboarding' ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
-                {dealResult.billingType === 'comped' && (
-                  <p className="text-teal/60 text-xs">
-                    Comped client — send the onboarding link directly.
-                  </p>
-                )}
-                {dealResult.billingType === 'invoice' && (
-                  <p className="text-teal/60 text-xs">
-                    Invoice client — use Mark paid after payment is confirmed.
-                  </p>
-                )}
               </div>
             )}
           </Card>
@@ -304,15 +596,19 @@ function AdminDashboard() {
                     <td className="px-4 py-2 font-medium text-teal">
                       {p.clients?.domain ?? p.client_id.slice(0, 8)}
                     </td>
-                    <td className="px-4 py-2 text-teal/70">
-                      {p.clients?.business_name ?? '—'}
-                    </td>
+                    <td className="px-4 py-2 text-teal/70">{p.clients?.business_name ?? '—'}</td>
                     <td className="px-4 py-2 text-teal/60">{fmt(p.generated_at)}</td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-2 space-x-2 whitespace-nowrap">
+                      <button
+                        onClick={() => openProfile(p.client_id, p.clients?.domain ?? '')}
+                        className="text-xs text-teal underline"
+                      >
+                        Review &amp; edit
+                      </button>
                       <button
                         onClick={() => handleApprove(p.id)}
                         disabled={approving === p.id}
-                        className="bg-green text-cream px-3 py-1 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+                        className="bg-green text-cream px-3 py-1 text-xs font-semibold rounded hover:opacity-90 disabled:opacity-50"
                       >
                         {approving === p.id ? 'Approving…' : 'Approve'}
                       </button>
@@ -335,69 +631,132 @@ function AdminDashboard() {
             <thead className="bg-teal text-cream text-xs uppercase">
               <tr>
                 <th className="px-4 py-2 text-left">Domain</th>
-                <th className="px-4 py-2 text-left">Billing</th>
-                <th className="px-4 py-2 text-left">Price</th>
+                <th className="px-4 py-2 text-left">Plan</th>
                 <th className="px-4 py-2 text-left">Status</th>
-                <th className="px-4 py-2 text-left">Links</th>
+                <th className="px-4 py-2 text-left">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-teal/20">
               {clients.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-4 text-center text-teal/50">
+                  <td colSpan={4} className="px-4 py-4 text-center text-teal/50">
                     No clients yet.
                   </td>
                 </tr>
               ) : (
                 clients.map((c) => (
-                  <tr key={c.id} className="hover:bg-orange/10">
-                    <td className="px-4 py-2">
+                  <tr key={c.id} className="hover:bg-orange/10 align-top">
+                    <td className="px-4 py-3">
                       <p className="font-medium text-teal">{c.domain}</p>
                       <p className="text-xs text-teal/50">{c.contact_email ?? '—'}</p>
-                    </td>
-                    <td className="px-4 py-2 text-teal/70 capitalize">
-                      {c.billing_type?.replace('_', ' ') ?? 'standard'}
-                    </td>
-                    <td className="px-4 py-2 text-teal/70">
-                      {formatMonthlyPrice(c.quoted_monthly_cents)}
-                    </td>
-                    <td className="px-4 py-2">
-                      <span
-                        className={`px-2 py-0.5 text-xs font-medium ${
-                          c.status === 'active'
-                            ? 'bg-green/30 text-teal'
-                            : c.status === 'onboarding'
-                              ? 'bg-orange/30 text-teal'
-                              : 'bg-teal/10 text-teal/70'
-                        }`}
-                      >
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 space-x-2">
-                      {c.checkout_token && c.status === 'pending_payment' && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            copyText(
-                              `${window.location.origin}/checkout/${c.checkout_token}`,
-                              c.id,
-                            )
-                          }
-                          className="text-xs text-teal underline"
-                        >
-                          {copied === c.id ? 'Copied!' : 'Checkout link'}
-                        </button>
+                      {c.dns_verified && (
+                        <p className="text-xs text-green mt-0.5">✓ DNS verified</p>
                       )}
-                      {c.billing_type === 'invoice' && c.status === 'pending_payment' && (
+                      {c.custom_hostname && (
+                        <p className="text-xs mt-0.5 text-teal/60">
+                          <span className="font-mono">{c.custom_hostname}</span>{' '}
+                          <span
+                            className={
+                              c.custom_hostname_status === 'active'
+                                ? 'text-green font-semibold'
+                                : c.custom_hostname_status === 'error'
+                                  ? 'text-coral font-semibold'
+                                  : 'text-teal/50'
+                            }
+                          >
+                            {c.custom_hostname_status === 'active'
+                              ? '✓ active'
+                              : c.custom_hostname_status === 'error'
+                                ? '✕ error'
+                                : '… pending'}
+                          </span>
+                          {c.custom_hostname_status === 'error' && c.custom_hostname_error && (
+                            <span className="block text-coral/80">{c.custom_hostname_error}</span>
+                          )}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-teal/70 capitalize">{c.plan ?? 'starter'}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={c.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        <a
+                          href={`/onboarding/${c.id}`}
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5"
+                        >
+                          Onboarding
+                        </a>
                         <button
                           type="button"
-                          onClick={() => handleMarkPaid(c.id)}
-                          disabled={markingPaid === c.id}
-                          className="text-xs bg-green text-cream px-2 py-0.5 font-semibold disabled:opacity-50"
+                          onClick={() => handleRunScan(c.id, c.domain)}
+                          disabled={!!rowBusy[c.id]}
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
                         >
-                          {markingPaid === c.id ? '…' : 'Mark paid'}
+                          Run Scan
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => openProfile(c.id, c.domain)}
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5"
+                        >
+                          {c.profile ? 'View / Edit Profile' : 'Profile'}
+                        </button>
+                        {c.profile?.status === 'pending_review' && (
+                          <button
+                            type="button"
+                            onClick={() => handleApprove(c.profile!.id)}
+                            disabled={approving === c.profile.id}
+                            className="text-xs bg-green text-cream px-2 py-1 rounded font-semibold disabled:opacity-50"
+                          >
+                            {approving === c.profile.id ? '…' : 'Approve'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleSetupHostname(c.id, c.custom_hostname)}
+                          disabled={!!rowBusy[c.id]}
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
+                        >
+                          {c.custom_hostname ? 'Re-register Hostname' : 'Setup Hostname'}
+                        </button>
+                        {c.custom_hostname && (
+                          <button
+                            type="button"
+                            onClick={() => handleRefreshHostname(c.id)}
+                            disabled={!!rowBusy[c.id]}
+                            className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
+                          >
+                            Check Hostname
+                          </button>
+                        )}
+                        {c.checkout_token && c.status === 'pending_payment' && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              copyText(`${window.location.origin}/checkout/${c.checkout_token}`, c.id)
+                            }
+                            className="text-xs text-teal underline px-1"
+                          >
+                            {copied === c.id ? 'Copied!' : 'Checkout link'}
+                          </button>
+                        )}
+                        {c.billing_type === 'invoice' && c.status === 'pending_payment' && (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkPaid(c.id)}
+                            disabled={markingPaid === c.id}
+                            className="text-xs bg-green text-cream px-2 py-1 rounded font-semibold disabled:opacity-50"
+                          >
+                            {markingPaid === c.id ? '…' : 'Mark paid'}
+                          </button>
+                        )}
+                      </div>
+                      {(rowBusy[c.id] || rowMsg[c.id]) && (
+                        <p className="text-xs text-teal/60 mt-1.5">
+                          {rowBusy[c.id] ?? rowMsg[c.id]}
+                        </p>
                       )}
                     </td>
                   </tr>
@@ -460,6 +819,84 @@ function AdminDashboard() {
           </table>
         </div>
       </section>
+
+      {/* Profile view / edit panel */}
+      {panel && (
+        <div
+          className="fixed inset-0 z-50 bg-teal-dark/40 flex items-start justify-center overflow-y-auto p-4"
+          onClick={() => setPanel(null)}
+        >
+          <div
+            className="bg-cream border-2 border-teal card-shadow w-full max-w-3xl my-8 p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-extrabold text-teal">Profile — {panel.domain}</h3>
+                {panel.status && (
+                  <span className="text-xs text-teal/60">
+                    Current status: <StatusBadge status={panel.status} />
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setPanel(null)}
+                className="text-sm text-teal/60 hover:text-teal"
+              >
+                Close
+              </button>
+            </div>
+
+            {panel.loading ? (
+              <p className="text-sm text-teal/60 py-8 text-center">Loading profile…</p>
+            ) : !panel.profileId ? (
+              <p className="text-sm text-teal/70 py-8 text-center">
+                {panel.error ?? 'No profile generated yet.'} Run onboarding to generate one.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-teal/60 mb-1 uppercase tracking-wide">
+                    llms.txt
+                  </label>
+                  <textarea
+                    value={panel.llmsTxt}
+                    onChange={(e) => setPanel((p) => (p ? { ...p, llmsTxt: e.target.value } : p))}
+                    className="input-field font-mono text-xs min-h-[200px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-teal/60 mb-1 uppercase tracking-wide">
+                    tools.json
+                  </label>
+                  <textarea
+                    value={panel.toolsJson}
+                    onChange={(e) => setPanel((p) => (p ? { ...p, toolsJson: e.target.value } : p))}
+                    className="input-field font-mono text-xs min-h-[160px]"
+                    placeholder="{ }"
+                  />
+                </div>
+                {panel.error && <p className="text-sm text-coral">{panel.error}</p>}
+                <div className="flex flex-wrap gap-3">
+                  <Button onClick={saveProfile} disabled={panel.saving || panel.approving}>
+                    {panel.saving ? 'Saving…' : 'Save changes'}
+                  </Button>
+                  {panel.status === 'pending_review' && (
+                    <button
+                      type="button"
+                      onClick={approveFromPanel}
+                      disabled={panel.approving || panel.saving}
+                      className="bg-green text-cream px-4 py-2 text-sm font-semibold rounded hover:opacity-90 disabled:opacity-50"
+                    >
+                      {panel.approving ? 'Approving…' : 'Save & Approve → live'}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

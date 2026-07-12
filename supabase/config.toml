@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.weekly-monitor]
 verify_jwt = false
+
+[functions.hostname-lookup]
+verify_jwt = false

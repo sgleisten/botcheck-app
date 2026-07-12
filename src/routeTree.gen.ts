@@ -20,6 +20,7 @@ import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$cli
 import { Route as CheckoutTokenRouteImport } from './routes/checkout/$token'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as SitesClientIdFilenameRouteImport } from './routes/sites/$clientId/$filename'
+import { Route as OnboardingDnsSetupClientIdRouteImport } from './routes/onboarding/dns-setup/$clientId'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
 
 const PricingRoute = PricingRouteImport.update({
@@ -77,6 +78,12 @@ const SitesClientIdFilenameRoute = SitesClientIdFilenameRouteImport.update({
   path: '/sites/$clientId/$filename',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingDnsSetupClientIdRoute =
+  OnboardingDnsSetupClientIdRouteImport.update({
+    id: '/onboarding/dns-setup/$clientId',
+    path: '/onboarding/dns-setup/$clientId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
   id: '/api/webhooks/stripe',
   path: '/api/webhooks/stripe',
@@ -95,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
   '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRoutesByTo {
@@ -109,6 +117,7 @@ export interface FileRoutesByTo {
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
   '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRoutesById {
@@ -124,6 +133,7 @@ export interface FileRoutesById {
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
   '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRouteTypes {
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
+    | '/onboarding/dns-setup/$clientId'
     | '/sites/$clientId/$filename'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -154,6 +165,7 @@ export interface FileRouteTypes {
     | '/report/$scanId'
     | '/admin'
     | '/api/webhooks/stripe'
+    | '/onboarding/dns-setup/$clientId'
     | '/sites/$clientId/$filename'
   id:
     | '__root__'
@@ -168,6 +180,7 @@ export interface FileRouteTypes {
     | '/report/$scanId'
     | '/admin/'
     | '/api/webhooks/stripe'
+    | '/onboarding/dns-setup/$clientId'
     | '/sites/$clientId/$filename'
   fileRoutesById: FileRoutesById
 }
@@ -183,6 +196,7 @@ export interface RootRouteChildren {
   ReportScanIdRoute: typeof ReportScanIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
+  OnboardingDnsSetupClientIdRoute: typeof OnboardingDnsSetupClientIdRoute
   SitesClientIdFilenameRoute: typeof SitesClientIdFilenameRoute
 }
 
@@ -265,6 +279,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SitesClientIdFilenameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding/dns-setup/$clientId': {
+      id: '/onboarding/dns-setup/$clientId'
+      path: '/onboarding/dns-setup/$clientId'
+      fullPath: '/onboarding/dns-setup/$clientId'
+      preLoaderRoute: typeof OnboardingDnsSetupClientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/stripe': {
       id: '/api/webhooks/stripe'
       path: '/api/webhooks/stripe'
@@ -287,17 +308,9 @@ const rootRouteChildren: RootRouteChildren = {
   ReportScanIdRoute: ReportScanIdRoute,
   AdminIndexRoute: AdminIndexRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
+  OnboardingDnsSetupClientIdRoute: OnboardingDnsSetupClientIdRoute,
   SitesClientIdFilenameRoute: SitesClientIdFilenameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "botcheck",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "sn-academy",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "/Users/faculty/sn-academy"],
+      "port": 3100,
+      "autoPort": true
+    },
+    {
+      "name": "preact9-prep",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "/Users/faculty/preact9-prep"],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}

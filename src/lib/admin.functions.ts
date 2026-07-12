@@ -28,7 +28,7 @@ function sessionConfig() {
   }
 }
 
-async function assertAdmin() {
+export async function assertAdmin() {
   const adminUserId = process.env.ADMIN_USER_ID
   const session = await useSession<AdminSession>(sessionConfig())
   if (!adminUserId || session.data.userId !== adminUserId) {
@@ -76,7 +76,7 @@ export const adminLogout = createServerFn({ method: 'POST' }).handler(async () =
 export const getAdminData = createServerFn({ method: 'GET' }).handler(async () => {
   await assertAdmin()
 
-  const [profilesRes, clientsRes, scansRes] = await Promise.all([
+  const [profilesRes, clientsRes, scansRes, allProfilesRes] = await Promise.all([
     supabaseAdmin
       .from('profiles')
       .select('id, client_id, status, generated_at, created_at, clients(domain, business_name)')
@@ -86,7 +86,7 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
     supabaseAdmin
       .from('clients')
       .select(
-        'id, domain, business_name, contact_email, status, billing_type, quoted_monthly_cents, checkout_token, created_at',
+        'id, domain, business_name, contact_email, status, plan, dns_verified, billing_type, quoted_monthly_cents, checkout_token, custom_hostname, custom_hostname_status, custom_hostname_error, created_at',
       )
       .order('created_at', { ascending: false }),
 
@@ -95,11 +95,50 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
       .select('id, url, ars_score, email, created_at')
       .order('created_at', { ascending: false })
       .limit(50),
+
+    // Latest profile per client, for the per-row View/Edit/Approve actions.
+    supabaseAdmin
+      .from('profiles')
+      .select('id, client_id, status, version')
+      .order('version', { ascending: false }),
   ])
 
   if (profilesRes.error) throw new Error(profilesRes.error.message)
   if (clientsRes.error) throw new Error(clientsRes.error.message)
   if (scansRes.error) throw new Error(scansRes.error.message)
+  if (allProfilesRes.error) throw new Error(allProfilesRes.error.message)
+
+  const latestProfileByClient = new Map<string, { id: string; status: string }>()
+  for (const p of allProfilesRes.data as Array<{
+    id: string
+    client_id: string
+    status: string
+    version: number
+  }>) {
+    // Rows are version-desc, so the first one seen per client is the latest.
+    if (!latestProfileByClient.has(p.client_id)) {
+      latestProfileByClient.set(p.client_id, { id: p.id, status: p.status })
+    }
+  }
+
+  const clients = (
+    clientsRes.data as Array<{
+      id: string
+      domain: string
+      business_name: string | null
+      contact_email: string | null
+      status: string
+      plan: string | null
+      dns_verified: boolean | null
+      billing_type: BillingType
+      quoted_monthly_cents: number | null
+      checkout_token: string | null
+      custom_hostname: string | null
+      custom_hostname_status: string | null
+      custom_hostname_error: string | null
+      created_at: string
+    }>
+  ).map((c) => ({ ...c, profile: latestProfileByClient.get(c.id) ?? null }))
 
   return {
     pendingProfiles: profilesRes.data as unknown as Array<{
@@ -110,17 +149,7 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
       created_at: string
       clients: { domain: string; business_name: string | null } | null
     }>,
-    clients: clientsRes.data as Array<{
-      id: string
-      domain: string
-      business_name: string | null
-      contact_email: string | null
-      status: string
-      billing_type: BillingType
-      quoted_monthly_cents: number | null
-      checkout_token: string | null
-      created_at: string
-    }>,
+    clients,
     recentScans: scansRes.data as Array<{
       id: string
       url: string
@@ -130,6 +159,99 @@ export const getAdminData = createServerFn({ method: 'GET' }).handler(async () =
     }>,
   }
 })
+
+// ─── Manual onboarding & profile editing ────────────────────────────────────────
+
+const manualClientSchema = z.object({
+  domain: z.string().min(3).max(255),
+  businessName: z.string().min(1).max(255),
+  contactEmail: z.string().email(),
+  plan: z.enum(['starter', 'agency']).default('starter'),
+  notes: z.string().max(2000).optional(),
+})
+
+export const createManualClient = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => manualClientSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const insert: Record<string, unknown> = {
+      domain: data.domain,
+      business_name: data.businessName,
+      contact_email: data.contactEmail,
+      plan: data.plan,
+      status: 'onboarding',
+      billing_type: 'comped',
+    }
+    // `notes` requires the 20260615 migration; only set it when provided so the
+    // insert still works on a DB that hasn't run that migration yet.
+    if (data.notes && data.notes.trim()) insert.notes = data.notes.trim()
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .insert(insert)
+      .select('id')
+      .single()
+
+    if (error || !client) throw new Error(error?.message ?? 'Failed to create client')
+
+    return { clientId: client.id, onboardingUrl: onboardingUrl(client.id) }
+  })
+
+export const getClientProfile = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => z.object({ clientId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .select('id, status, version, llms_txt, tools_json, generated_at')
+      .eq('client_id', data.clientId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) throw new Error(error.message)
+    if (!profile) return null
+
+    return {
+      id: profile.id as string,
+      status: profile.status as string,
+      version: profile.version as number,
+      llmsTxt: (profile.llms_txt as string | null) ?? '',
+      toolsJson: profile.tools_json ? JSON.stringify(profile.tools_json, null, 2) : '',
+      generatedAt: profile.generated_at as string | null,
+    }
+  })
+
+const updateProfileSchema = z.object({
+  profileId: z.string().uuid(),
+  llmsTxt: z.string().max(50000),
+  toolsJson: z.string().max(50000),
+})
+
+export const updateProfile = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => updateProfileSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    let parsedTools: unknown = null
+    if (data.toolsJson.trim()) {
+      try {
+        parsedTools = JSON.parse(data.toolsJson)
+      } catch {
+        throw new Error('tools.json is not valid JSON — fix it before saving.')
+      }
+    }
+
+    const { error } = await supabaseAdmin
+      .from('profiles')
+      .update({ llms_txt: data.llmsTxt, tools_json: parsedTools })
+      .eq('id', data.profileId)
+
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
 
 export const approveProfile = createServerFn({ method: 'POST' })
   .validator((input: unknown) => z.object({ profileId: z.string().uuid() }).parse(input))

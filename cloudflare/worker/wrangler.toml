@@ -1,0 +1,21 @@
+name = "botcheck-profile-router"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# This Worker is bound to the botcheck.io zone via a zone-wide Workers Route
+# (*/*) as the Cloudflare for SaaS fallback origin. That means it also
+# receives botcheck.io's own production traffic (homepage, checkout, admin),
+# not just client custom-hostname traffic — PRIMARY_HOSTNAMES below is what
+# keeps that traffic working (passed straight through to Vercel) instead of
+# 404ing against the profile-serving logic.
+#
+# All values are public. The Worker holds NO Supabase credential —
+# hostname-lookup is a public, narrowly-scoped endpoint returning only
+# { client_id, status }.
+[vars]
+SUPABASE_URL = "https://mbqpbtrmodglklfofwlz.supabase.co"
+APP_URL = "https://botcheck.io"
+# Confirmed in docs/DEPLOY.md as the project's stable Vercel domain — verify
+# this still matches Vercel → Project → Settings → Domains before relying on it.
+VERCEL_ORIGIN = "botcheck-app.vercel.app"
+PRIMARY_HOSTNAMES = "botcheck.io,www.botcheck.io"
