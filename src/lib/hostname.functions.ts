@@ -31,7 +31,7 @@ export type HostnameStatusResult = {
 export const setupCustomHostname = createServerFn({ method: 'POST' })
   .validator((input: unknown) => setupSchema.parse(input))
   .handler(async ({ data }): Promise<HostnameStatusResult> => {
-    const { assertAdmin } = await import('./admin.functions')
+    const { assertAdmin } = await import('./admin-auth.server')
     await assertAdmin()
 
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
@@ -83,7 +83,7 @@ export const setupCustomHostname = createServerFn({ method: 'POST' })
 export const refreshHostnameStatus = createServerFn({ method: 'POST' })
   .validator((input: unknown) => z.object({ clientId: z.string().uuid() }).parse(input))
   .handler(async ({ data }): Promise<HostnameStatusResult> => {
-    const { assertAdmin } = await import('./admin.functions')
+    const { assertAdmin } = await import('./admin-auth.server')
     await assertAdmin()
 
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')

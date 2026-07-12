@@ -1,6 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
 import { useSession } from '@tanstack/react-start/server'
-import { redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 import { supabaseAdmin, supabaseAuth } from '@/integrations/supabase/client.server'
 import {
@@ -9,33 +8,7 @@ import {
   onboardingUrl,
   type BillingType,
 } from '@/lib/billing.server'
-
-type AdminSession = { userId?: string }
-
-// SESSION_SECRET must be ≥32 chars. Set in .env — the fallback is dev-only.
-function sessionConfig() {
-  const isDev = process.env.NODE_ENV === 'development'
-  return {
-    password: process.env.SESSION_SECRET ?? 'dev-only-fallback-secret-needs-32c!!',
-    name: 'admin',
-    maxAge: 60 * 60 * 8, // 8 h
-    cookie: {
-      httpOnly: true,
-      secure: !isDev,
-      sameSite: 'lax' as const,
-      path: '/',
-    },
-  }
-}
-
-export async function assertAdmin() {
-  const adminUserId = process.env.ADMIN_USER_ID
-  const session = await useSession<AdminSession>(sessionConfig())
-  if (!adminUserId || session.data.userId !== adminUserId) {
-    throw redirect({ to: '/admin/login' })
-  }
-  return session.data.userId as string
-}
+import { assertAdmin, sessionConfig, type AdminSession } from './admin-auth.server'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
