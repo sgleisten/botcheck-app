@@ -1,3 +1,10 @@
 # https://www.robotstxt.org/robotstxt.html
 User-agent: *
-Disallow:
+Allow: /
+
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /checkout
+Disallow: /api
+
+Sitemap: https://botcheck.io/sitemap.xml

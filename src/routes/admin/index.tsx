@@ -15,6 +15,7 @@ import {
   rerunScan,
 } from '@/lib/admin.functions'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
+import { ClientDeployPanel } from '@/components/admin/ClientDeployPanel'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 
@@ -149,7 +150,9 @@ function AdminDashboard() {
     contactEmail: '',
     plan: 'starter' as PlanOption,
     notes: '',
+    hostingAccess: false,
   })
+  const [deployPanel, setDeployPanel] = useState<{ clientId: string; domain: string } | null>(null)
 
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
@@ -389,8 +392,13 @@ function AdminDashboard() {
           contactEmail: add.contactEmail,
           plan: add.plan,
           notes: add.notes || undefined,
+          hostingAccess: add.hostingAccess,
+          runBaselineScan: true,
         },
       })
+      if (result.baselineScore != null) {
+        alert(`Client created. Baseline score: ${result.baselineScore}/100`)
+      }
       await router.navigate({ to: '/onboarding/$clientId', params: { clientId: result.clientId } })
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Failed to add client')
@@ -572,8 +580,8 @@ function AdminDashboard() {
       {addOpen && (
         <Card className="space-y-4">
           <p className="text-sm text-teal/70">
-            Create a client manually (no Stripe). Sets status to <strong>onboarding</strong> and
-            takes you straight into the onboarding chat to complete it on their behalf.
+            Create an agency client (no Stripe). Runs a baseline scan automatically, then opens
+            onboarding to build their AI profile.
           </p>
           <form onSubmit={handleAddClient} className="grid sm:grid-cols-2 gap-4">
             <div>
@@ -616,6 +624,18 @@ function AdminDashboard() {
                 <option value="agency">Agency</option>
               </select>
             </div>
+            <div className="sm:col-span-2 flex items-center gap-2">
+              <input
+                id="hosting-access"
+                type="checkbox"
+                checked={add.hostingAccess}
+                onChange={(e) => setAdd({ ...add, hostingAccess: e.target.checked })}
+                className="rounded border-teal/40"
+              />
+              <label htmlFor="hosting-access" className="text-sm text-teal/80">
+                We have hosting access — also deploy files on their actual site
+              </label>
+            </div>
             <div className="sm:col-span-2">
               <label className="block text-xs text-teal/60 mb-1">Notes (optional)</label>
               <textarea
@@ -635,17 +655,12 @@ function AdminDashboard() {
         </Card>
       )}
 
-      {/* Create deal */}
-      <section>
-        <button
-          type="button"
-          onClick={() => setDealOpen((v) => !v)}
-          className="text-sm font-semibold uppercase tracking-wide text-teal/60 hover:text-teal mb-3"
-        >
-          {dealOpen ? '− Create deal' : '+ Create deal (custom pricing / invoice / comped)'}
-        </button>
-
-        {dealOpen && (
+      {/* Create deal — collapsed by default for agency workflow */}
+      <details className="group">
+        <summary className="text-sm font-semibold uppercase tracking-wide text-teal/60 hover:text-teal mb-3 cursor-pointer list-none">
+          + Create deal (Stripe / invoice — optional)
+        </summary>
+      <section className="mb-8">
           <Card className="space-y-4">
             <p className="text-sm text-teal/70">
               Create a client with custom pricing, invoice billing, or comped access. Copy the
@@ -762,8 +777,8 @@ function AdminDashboard() {
               </div>
             )}
           </Card>
-        )}
       </section>
+      </details>
 
       {/* Pending profiles */}
       <section>
@@ -837,6 +852,7 @@ function AdminDashboard() {
             <thead className="bg-teal text-cream text-xs uppercase">
               <tr>
                 <th className="px-4 py-2 text-left">Domain</th>
+                <th className="px-4 py-2 text-left">Score</th>
                 <th className="px-4 py-2 text-left">Plan</th>
                 <SortHeader
                   label="Status"
@@ -865,7 +881,7 @@ function AdminDashboard() {
             <tbody className="divide-y divide-teal/20">
               {sortedClients.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-4 text-center text-teal/50">
+                  <td colSpan={7} className="px-4 py-4 text-center text-teal/50">
                     {showArchived ? 'No archived clients.' : 'No clients yet.'}
                   </td>
                 </tr>
@@ -901,6 +917,26 @@ function AdminDashboard() {
                           )}
                         </p>
                       )}
+                      {c.hosting_access && (
+                        <p className="text-xs text-orange mt-0.5">+ on-site deploy</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-teal/80 whitespace-nowrap">
+                      {'baselineScore' in c && c.baselineScore != null ? (
+                        <span>
+                          {c.baselineScore}
+                          {'postDeliveryScore' in c && c.postDeliveryScore != null ? (
+                            <span className="text-green font-semibold">
+                              {' '}
+                              → {c.postDeliveryScore}
+                            </span>
+                          ) : (
+                            <span className="text-teal/40"> → —</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-teal/40">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-teal/70 capitalize">{c.plan ?? 'starter'}</td>
                     <td className="px-4 py-3">
@@ -910,6 +946,13 @@ function AdminDashboard() {
                     <td className="px-4 py-3 text-teal/60">{fmt(c.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setDeployPanel({ clientId: c.id, domain: c.domain })}
+                          className="text-xs bg-orange text-teal px-2 py-1 rounded font-semibold hover:opacity-90"
+                        >
+                          Deploy
+                        </button>
                         <button
                           type="button"
                           onClick={() => openEdit(c)}
@@ -1110,6 +1153,16 @@ function AdminDashboard() {
           </table>
         </div>
       </section>
+
+      {/* Deploy panel */}
+      {deployPanel && (
+        <ClientDeployPanel
+          clientId={deployPanel.clientId}
+          domain={deployPanel.domain}
+          onClose={() => setDeployPanel(null)}
+          onUpdated={() => void refreshClients()}
+        />
+      )}
 
       {/* Profile view / edit panel */}
       {panel && (

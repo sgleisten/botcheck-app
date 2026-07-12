@@ -56,7 +56,7 @@ export const getAdminData = createServerFn({ method: 'GET' })
   let clientsQuery = supabaseAdmin
     .from('clients')
     .select(
-      'id, domain, business_name, contact_email, status, plan, dns_verified, billing_type, quoted_monthly_cents, checkout_token, custom_hostname, custom_hostname_status, custom_hostname_error, notes, archived_at, created_at',
+      'id, domain, business_name, contact_email, status, plan, dns_verified, billing_type, quoted_monthly_cents, checkout_token, custom_hostname, custom_hostname_status, custom_hostname_error, notes, archived_at, created_at, baseline_scan_id, post_delivery_scan_id, hosting_access',
     )
     .order('created_at', { ascending: false })
   if (!data.includeArchived) {
@@ -121,8 +121,36 @@ export const getAdminData = createServerFn({ method: 'GET' })
       notes: string | null
       archived_at: string | null
       created_at: string
+      baseline_scan_id: string | null
+      post_delivery_scan_id: string | null
+      hosting_access: boolean | null
     }>
   ).map((c) => ({ ...c, profile: latestProfileByClient.get(c.id) ?? null }))
+
+  const scanIds = new Set<string>()
+  for (const c of clients) {
+    if (c.baseline_scan_id) scanIds.add(c.baseline_scan_id)
+    if (c.post_delivery_scan_id) scanIds.add(c.post_delivery_scan_id)
+  }
+
+  const scoreByScanId = new Map<string, number>()
+  if (scanIds.size > 0) {
+    const { data: linkedScans } = await supabaseAdmin
+      .from('scans')
+      .select('id, ars_score')
+      .in('id', [...scanIds])
+    for (const s of linkedScans ?? []) {
+      if (s.ars_score != null) scoreByScanId.set(s.id as string, s.ars_score as number)
+    }
+  }
+
+  const clientsWithScores = clients.map((c) => ({
+    ...c,
+    baselineScore: c.baseline_scan_id ? (scoreByScanId.get(c.baseline_scan_id) ?? null) : null,
+    postDeliveryScore: c.post_delivery_scan_id
+      ? (scoreByScanId.get(c.post_delivery_scan_id) ?? null)
+      : null,
+  }))
 
   return {
     pendingProfiles: profilesRes.data as unknown as Array<{
@@ -133,7 +161,7 @@ export const getAdminData = createServerFn({ method: 'GET' })
       created_at: string
       clients: { domain: string; business_name: string | null } | null
     }>,
-    clients,
+    clients: clientsWithScores,
     recentScans: scansRes.data as Array<{
       id: string
       url: string
@@ -153,6 +181,8 @@ const manualClientSchema = z.object({
   contactEmail: z.string().email(),
   plan: z.enum(['starter', 'agency']).default('starter'),
   notes: z.string().max(2000).optional(),
+  hostingAccess: z.boolean().default(false),
+  runBaselineScan: z.boolean().default(true),
 })
 
 export const createManualClient = createServerFn({ method: 'POST' })
@@ -167,6 +197,7 @@ export const createManualClient = createServerFn({ method: 'POST' })
       plan: data.plan,
       status: 'onboarding',
       billing_type: 'comped',
+      hosting_access: data.hostingAccess,
     }
     // `notes` requires the 20260615 migration; only set it when provided so the
     // insert still works on a DB that hasn't run that migration yet.
@@ -180,7 +211,32 @@ export const createManualClient = createServerFn({ method: 'POST' })
 
     if (error || !client) throw new Error(error?.message ?? 'Failed to create client')
 
-    return { clientId: client.id, onboardingUrl: onboardingUrl(client.id) }
+    let baselineScanId: string | null = null
+    let baselineScore: number | null = null
+
+    if (data.runBaselineScan) {
+      try {
+        const { performScan } = await import('./scan.functions')
+        const url = /^https?:\/\//i.test(data.domain) ? data.domain : `https://${data.domain}`
+        const scan = await performScan(url, client.id)
+        baselineScanId = scan.id
+        baselineScore = scan.ars_score
+
+        await supabaseAdmin
+          .from('clients')
+          .update({ baseline_scan_id: scan.id, scan_id: scan.id })
+          .eq('id', client.id)
+      } catch (err) {
+        console.error('[admin] Baseline scan failed:', err)
+      }
+    }
+
+    return {
+      clientId: client.id,
+      onboardingUrl: onboardingUrl(client.id),
+      baselineScanId,
+      baselineScore,
+    }
   })
 
 export const getClientProfile = createServerFn({ method: 'GET' })
@@ -190,7 +246,7 @@ export const getClientProfile = createServerFn({ method: 'GET' })
 
     const { data: profile, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, status, version, llms_txt, tools_json, generated_at')
+      .select('id, status, version, llms_txt, tools_json, robots_txt_additions, generated_at')
       .eq('client_id', data.clientId)
       .order('version', { ascending: false })
       .limit(1)
@@ -205,6 +261,7 @@ export const getClientProfile = createServerFn({ method: 'GET' })
       version: profile.version as number,
       llmsTxt: (profile.llms_txt as string | null) ?? '',
       toolsJson: profile.tools_json ? JSON.stringify(profile.tools_json, null, 2) : '',
+      robotsTxtAdditions: (profile.robots_txt_additions as string | null) ?? '',
       generatedAt: profile.generated_at as string | null,
     }
   })
@@ -453,4 +510,236 @@ export const rerunScan = createServerFn({ method: 'POST' })
     const { performScan } = await import('./scan.functions')
     const result = await performScan(data.url, data.clientId)
     return { id: result.id, ars_score: result.ars_score }
+  })
+
+// ─── Agency deploy & before/after tracking ───────────────────────────────────
+
+function appBaseUrl(): string {
+  const url = process.env.APP_URL?.trim()
+  return url && url.length > 0 ? url.replace(/\/+$/, '') : 'http://localhost:3000'
+}
+
+export const getClientDeployData = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { buildIndexJson, buildJsonLd, onSiteDeployChecklist, profileFileUrl } = await import(
+      './profile-surfaces'
+    )
+
+    const { data: client, error: clientError } = await supabaseAdmin
+      .from('clients')
+      .select(
+        'id, domain, business_name, contact_email, hosting_access, custom_hostname, custom_hostname_status, dns_verified, baseline_scan_id, post_delivery_scan_id',
+      )
+      .eq('id', data.clientId)
+      .single()
+
+    if (clientError || !client) throw new Error('Client not found')
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, status, llms_txt, tools_json, robots_txt_additions')
+      .eq('client_id', data.clientId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const scanIds = [client.baseline_scan_id, client.post_delivery_scan_id].filter(Boolean) as string[]
+    const scoreById = new Map<string, number>()
+    if (scanIds.length > 0) {
+      const { data: scans } = await supabaseAdmin
+        .from('scans')
+        .select('id, ars_score')
+        .in('id', scanIds)
+      for (const s of scans ?? []) {
+        if (s.ars_score != null) scoreById.set(s.id as string, s.ars_score as number)
+      }
+    }
+
+    const { data: brandChecks } = await supabaseAdmin
+      .from('brand_checks')
+      .select('id, check_type, mention_count, model_count, notes, created_at')
+      .eq('client_id', data.clientId)
+      .order('created_at', { ascending: true })
+
+    const appUrl = appBaseUrl()
+    const surfaceInput = {
+      businessName: client.business_name as string | null,
+      domain: client.domain as string,
+      llmsTxt: (profile?.llms_txt as string | null) ?? null,
+      toolsJson: profile?.tools_json ?? null,
+    }
+
+    const jsonLd = JSON.stringify(buildJsonLd(surfaceInput), null, 2)
+    const jsonLdSnippet = `<script type="application/ld+json">\n${jsonLd}\n</script>`
+
+    return {
+      client: {
+        id: client.id as string,
+        domain: client.domain as string,
+        businessName: client.business_name as string | null,
+        hostingAccess: Boolean(client.hosting_access),
+        customHostname: client.custom_hostname as string | null,
+        customHostnameStatus: client.custom_hostname_status as string | null,
+        dnsVerified: Boolean(client.dns_verified),
+      },
+      profile: profile
+        ? {
+            id: profile.id as string,
+            status: profile.status as string,
+            llmsTxt: (profile.llms_txt as string | null) ?? '',
+            toolsJson: profile.tools_json ? JSON.stringify(profile.tools_json, null, 2) : '',
+            robotsTxtAdditions: (profile.robots_txt_additions as string | null) ?? '',
+          }
+        : null,
+      scores: {
+        baseline: client.baseline_scan_id
+          ? (scoreById.get(client.baseline_scan_id as string) ?? null)
+          : null,
+        postDelivery: client.post_delivery_scan_id
+          ? (scoreById.get(client.post_delivery_scan_id as string) ?? null)
+          : null,
+        baselineScanId: client.baseline_scan_id as string | null,
+        postDeliveryScanId: client.post_delivery_scan_id as string | null,
+      },
+      brandChecks: (brandChecks ?? []) as Array<{
+        id: string
+        check_type: string
+        mention_count: number
+        model_count: number
+        notes: string | null
+        created_at: string
+      }>,
+      urls: {
+        llmsTxt: profileFileUrl(appUrl, data.clientId, 'llms.txt'),
+        toolsJson: profileFileUrl(appUrl, data.clientId, 'tools.json'),
+        indexJson: profileFileUrl(appUrl, data.clientId, 'index.json'),
+        jsonld: profileFileUrl(appUrl, data.clientId, 'jsonld'),
+        dnsSetup: `${appUrl}/onboarding/dns-setup/${data.clientId}`,
+        clientReport: `${appUrl}/print/client/${data.clientId}`,
+      },
+      jsonLdSnippet,
+      indexJsonPreview: JSON.stringify(buildIndexJson(surfaceInput), null, 2),
+      onSiteChecklist: onSiteDeployChecklist(client.domain as string),
+      fallbackOrigin: process.env.CLOUDFLARE_FALLBACK_ORIGIN ?? 'fallback.botcheck.io',
+    }
+  })
+
+export const runPostDeliveryScan = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .select('id, domain')
+      .eq('id', data.clientId)
+      .single()
+
+    if (error || !client) throw new Error('Client not found')
+
+    const { performScan } = await import('./scan.functions')
+    const url = /^https?:\/\//i.test(client.domain) ? client.domain : `https://${client.domain}`
+    const result = await performScan(url, client.id)
+
+    const { error: updateError } = await supabaseAdmin
+      .from('clients')
+      .update({ post_delivery_scan_id: result.id, last_scanned_at: new Date().toISOString() })
+      .eq('id', data.clientId)
+
+    if (updateError) throw new Error(updateError.message)
+
+    return { scanId: result.id, arsScore: result.ars_score }
+  })
+
+const brandCheckSchema = z.object({
+  clientId: z.string().uuid(),
+  checkType: z.enum(['baseline', 'post_delivery']),
+  mentionCount: z.number().int().min(0).max(100),
+  modelCount: z.number().int().min(1).max(20).default(5),
+  notes: z.string().max(2000).optional(),
+})
+
+export const recordBrandCheck = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => brandCheckSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: row, error } = await supabaseAdmin
+      .from('brand_checks')
+      .insert({
+        client_id: data.clientId,
+        check_type: data.checkType,
+        mention_count: data.mentionCount,
+        model_count: data.modelCount,
+        notes: data.notes?.trim() || null,
+      })
+      .select('id')
+      .single()
+
+    if (error || !row) throw new Error(error?.message ?? 'Failed to record brand check')
+    return { id: row.id as string }
+  })
+
+export const getClientReportData = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .select(
+        'id, domain, business_name, baseline_scan_id, post_delivery_scan_id, custom_hostname, hosting_access',
+      )
+      .eq('id', data.clientId)
+      .single()
+
+    if (error || !client) throw new Error('Client not found')
+
+    const scanIds = [client.baseline_scan_id, client.post_delivery_scan_id].filter(Boolean) as string[]
+    const scansById = new Map<string, { ars_score: number | null; created_at: string }>()
+    if (scanIds.length > 0) {
+      const { data: scans } = await supabaseAdmin
+        .from('scans')
+        .select('id, ars_score, created_at')
+        .in('id', scanIds)
+      for (const s of scans ?? []) {
+        scansById.set(s.id as string, {
+          ars_score: s.ars_score as number | null,
+          created_at: s.created_at as string,
+        })
+      }
+    }
+
+    const { data: brandChecks } = await supabaseAdmin
+      .from('brand_checks')
+      .select('check_type, mention_count, model_count, created_at')
+      .eq('client_id', data.clientId)
+      .order('created_at', { ascending: true })
+
+    const baseline = client.baseline_scan_id
+      ? scansById.get(client.baseline_scan_id as string)
+      : null
+    const post = client.post_delivery_scan_id
+      ? scansById.get(client.post_delivery_scan_id as string)
+      : null
+
+    return {
+      domain: client.domain as string,
+      businessName: client.business_name as string | null,
+      customHostname: client.custom_hostname as string | null,
+      hostingAccess: Boolean(client.hosting_access),
+      baselineScore: baseline?.ars_score ?? null,
+      postDeliveryScore: post?.ars_score ?? null,
+      baselineDate: baseline?.created_at ?? null,
+      postDeliveryDate: post?.created_at ?? null,
+      brandChecks: (brandChecks ?? []) as Array<{
+        check_type: string
+        mention_count: number
+        model_count: number
+        created_at: string
+      }>,
+    }
   })

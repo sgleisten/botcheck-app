@@ -13,15 +13,25 @@ import { SiteFooter } from '@/components/ui/SiteFooter'
 import { SiteHeader } from '@/components/ui/SiteHeader'
 import { BeforeAfterDemo, type BeforeAfterContent } from '@/components/ui/BeforeAfterDemo'
 import { PricingTiers } from '@/components/ui/PricingTiers'
+import type { Discoverability } from '@/lib/scan.functions'
 
 export type ScanResultData = {
   id: string
   url: string
   ars_score: number
+  site_readiness?: number
   categories: SiteScan['categories']
+  discoverability?: Discoverability
   top_failures: string[]
   quick_wins: string[]
   before_after: BeforeAfterContent
+}
+
+const DISCOVERABILITY_LABELS: Record<keyof Omit<Discoverability, 'score'>, string> = {
+  robotsAllowsAi: 'AI crawlers allowed',
+  structuredData: 'Structured data (Schema.org)',
+  llmsTxt: 'AI profile (llms.txt)',
+  toolsJson: 'Agent actions (tools.json)',
 }
 
 type Props = {
@@ -72,6 +82,21 @@ export function ScanResultsView({
         </div>
         <p className="text-sm font-medium text-teal/60 mt-5">Agent Readiness Score</p>
 
+        {result.discoverability && (
+          <div className="mt-4 flex justify-center gap-6 text-sm">
+            <span className="text-teal/70">
+              Site readiness{' '}
+              <strong className="text-teal">{result.site_readiness ?? '—'}</strong>
+              <span className="text-teal/40">/100</span>
+            </span>
+            <span className="text-teal/70">
+              AI discoverability{' '}
+              <strong className="text-teal">{result.discoverability.score}</strong>
+              <span className="text-teal/40">/100</span>
+            </span>
+          </div>
+        )}
+
         <h1 className="text-3xl md:text-4xl font-extrabold text-teal mt-6 max-w-2xl mx-auto leading-tight">
           {scoreHeadline(result.ars_score)}
         </h1>
@@ -95,6 +120,50 @@ export function ScanResultsView({
           ))}
         </div>
       </Section>
+
+      {/* AI Discoverability checklist */}
+      {result.discoverability && (
+        <Section tone="cream" className="!py-8 !pt-0">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-baseline justify-between mb-4">
+              <h2 className="text-lg font-extrabold text-teal">AI Discoverability</h2>
+              <p className="text-sm text-teal/55">
+                What AI engines can read about you — before BotCheck
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {(
+                Object.keys(DISCOVERABILITY_LABELS) as (keyof typeof DISCOVERABILITY_LABELS)[]
+              ).map((key) => {
+                const check = result.discoverability![key]
+                return (
+                  <div
+                    key={key}
+                    className="flex items-start gap-3 rounded-lg border border-teal/15 bg-white px-4 py-3"
+                  >
+                    <span
+                      className={`shrink-0 mt-0.5 inline-flex w-5 h-5 items-center justify-center rounded-full text-xs font-bold ${
+                        check.ok ? 'bg-green/30 text-teal' : 'bg-coral/20 text-coral'
+                      }`}
+                    >
+                      {check.ok ? '✓' : '✗'}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-teal">
+                        {DISCOVERABILITY_LABELS[key]}
+                      </p>
+                      <p className="text-xs text-teal/55 leading-snug">{check.detail}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-xs text-teal/50 mt-3">
+              BotCheck adds the missing pieces and keeps them current — raising this score.
+            </p>
+          </div>
+        </Section>
+      )}
 
       {/* Step 6 — Before/after demo */}
       <Section tone="orange" className="!py-14">

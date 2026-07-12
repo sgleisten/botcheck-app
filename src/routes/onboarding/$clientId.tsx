@@ -41,7 +41,7 @@ function OnboardingChat() {
   const sendToAssistant = useCallback(
     async (allMessages: Message[]) => {
       if (!siteScan) {
-        setError('We could not find your website scan. Go back to botcheck.io and run a free scan first, then complete checkout.')
+        setError('We could not find your website scan. Run a free scan on the home page first, then complete checkout.')
         return
       }
 
@@ -136,8 +136,8 @@ function OnboardingChat() {
         <div className="max-w-2xl mx-auto px-5 py-4 space-y-4">
           {!siteScan ? (
             <div className="border-2 border-orange bg-orange/20 p-4 text-sm text-teal">
-              We don&apos;t have scan results for this site yet. Run a free scan at{' '}
-              <a href="https://agent-site-score.vercel.app" className="underline font-medium">botcheck.io</a> first, then return here
+              We don&apos;t have scan results for this site yet. Run a free scan on the{' '}
+              <a href="/" className="underline font-medium">home page</a> first, then return here
               after checkout.
             </div>
           ) : (

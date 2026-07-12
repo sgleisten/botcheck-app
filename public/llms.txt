@@ -1,0 +1,12 @@
+# BotCheck
+
+> Free instant check that shows how well AI agents can find and use your website — and what to fix so they don't get lost.
+
+BotCheck sends AI agents to your site, then scores how well those agents can discover your business, read your content, take actions (booking, buying, contacting), and understand what you actually do. You get a clear score, a breakdown by category, and a list of specific fixes. BotCheck then builds and hosts an AI presence profile (llms.txt, tools.json) for your business and keeps it updated as your site changes.
+
+## Pages
+
+- [Home](/): Run a free BotCheck in 60 seconds. See how AI agents experience your site and whether they can actually find your business.
+- [How It Works](/how-it-works): The five steps BotCheck takes to make your business AI-ready — scan, fill the gaps, build your profile, host it, and monitor weekly.
+- [Agencies](/agencies): AI presence management for agencies. Run scans across a client roster and join the founding partner program.
+- [Pricing](/pricing): Plans for hosting and maintaining your AI presence profile.

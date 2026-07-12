@@ -9,8 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as HowItWorksRouteImport } from './routes/how-it-works'
+import { Route as AgenciesRouteImport } from './routes/agencies'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ReportScanIdRouteImport } from './routes/report/$scanId'
@@ -20,9 +23,15 @@ import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$cli
 import { Route as CheckoutTokenRouteImport } from './routes/checkout/$token'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as SitesClientIdFilenameRouteImport } from './routes/sites/$clientId/$filename'
+import { Route as PrintClientClientIdRouteImport } from './routes/print/client/$clientId'
 import { Route as OnboardingDnsSetupClientIdRouteImport } from './routes/onboarding/dns-setup/$clientId'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PricingRoute = PricingRouteImport.update({
   id: '/pricing',
   path: '/pricing',
@@ -31,6 +40,16 @@ const PricingRoute = PricingRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HowItWorksRoute = HowItWorksRouteImport.update({
+  id: '/how-it-works',
+  path: '/how-it-works',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgenciesRoute = AgenciesRouteImport.update({
+  id: '/agencies',
+  path: '/agencies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -78,6 +97,11 @@ const SitesClientIdFilenameRoute = SitesClientIdFilenameRouteImport.update({
   path: '/sites/$clientId/$filename',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrintClientClientIdRoute = PrintClientClientIdRouteImport.update({
+  id: '/print/client/$clientId',
+  path: '/print/client/$clientId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OnboardingDnsSetupClientIdRoute =
   OnboardingDnsSetupClientIdRouteImport.update({
     id: '/onboarding/dns-setup/$clientId',
@@ -92,8 +116,11 @@ const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/agencies': typeof AgenciesRoute
+  '/how-it-works': typeof HowItWorksRoute
   '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin/login': typeof AdminLoginRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
@@ -103,12 +130,16 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
+  '/print/client/$clientId': typeof PrintClientClientIdRoute
   '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/agencies': typeof AgenciesRoute
+  '/how-it-works': typeof HowItWorksRoute
   '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin/login': typeof AdminLoginRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
@@ -118,13 +149,17 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
+  '/print/client/$clientId': typeof PrintClientClientIdRoute
   '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/agencies': typeof AgenciesRoute
+  '/how-it-works': typeof HowItWorksRoute
   '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin/login': typeof AdminLoginRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
@@ -134,14 +169,18 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
+  '/print/client/$clientId': typeof PrintClientClientIdRoute
   '/sites/$clientId/$filename': typeof SitesClientIdFilenameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/agencies'
+    | '/how-it-works'
     | '/login'
     | '/pricing'
+    | '/sitemap.xml'
     | '/admin/login'
     | '/checkout/$token'
     | '/onboarding/$clientId'
@@ -151,12 +190,16 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/api/webhooks/stripe'
     | '/onboarding/dns-setup/$clientId'
+    | '/print/client/$clientId'
     | '/sites/$clientId/$filename'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/agencies'
+    | '/how-it-works'
     | '/login'
     | '/pricing'
+    | '/sitemap.xml'
     | '/admin/login'
     | '/checkout/$token'
     | '/onboarding/$clientId'
@@ -166,12 +209,16 @@ export interface FileRouteTypes {
     | '/admin'
     | '/api/webhooks/stripe'
     | '/onboarding/dns-setup/$clientId'
+    | '/print/client/$clientId'
     | '/sites/$clientId/$filename'
   id:
     | '__root__'
     | '/'
+    | '/agencies'
+    | '/how-it-works'
     | '/login'
     | '/pricing'
+    | '/sitemap.xml'
     | '/admin/login'
     | '/checkout/$token'
     | '/onboarding/$clientId'
@@ -181,13 +228,17 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/api/webhooks/stripe'
     | '/onboarding/dns-setup/$clientId'
+    | '/print/client/$clientId'
     | '/sites/$clientId/$filename'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AgenciesRoute: typeof AgenciesRoute
+  HowItWorksRoute: typeof HowItWorksRoute
   LoginRoute: typeof LoginRoute
   PricingRoute: typeof PricingRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   AdminLoginRoute: typeof AdminLoginRoute
   CheckoutTokenRoute: typeof CheckoutTokenRoute
   OnboardingClientIdRoute: typeof OnboardingClientIdRoute
@@ -197,11 +248,19 @@ export interface RootRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
   OnboardingDnsSetupClientIdRoute: typeof OnboardingDnsSetupClientIdRoute
+  PrintClientClientIdRoute: typeof PrintClientClientIdRoute
   SitesClientIdFilenameRoute: typeof SitesClientIdFilenameRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pricing': {
       id: '/pricing'
       path: '/pricing'
@@ -214,6 +273,20 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/how-it-works': {
+      id: '/how-it-works'
+      path: '/how-it-works'
+      fullPath: '/how-it-works'
+      preLoaderRoute: typeof HowItWorksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agencies': {
+      id: '/agencies'
+      path: '/agencies'
+      fullPath: '/agencies'
+      preLoaderRoute: typeof AgenciesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -279,6 +352,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SitesClientIdFilenameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/print/client/$clientId': {
+      id: '/print/client/$clientId'
+      path: '/print/client/$clientId'
+      fullPath: '/print/client/$clientId'
+      preLoaderRoute: typeof PrintClientClientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/onboarding/dns-setup/$clientId': {
       id: '/onboarding/dns-setup/$clientId'
       path: '/onboarding/dns-setup/$clientId'
@@ -298,8 +378,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AgenciesRoute: AgenciesRoute,
+  HowItWorksRoute: HowItWorksRoute,
   LoginRoute: LoginRoute,
   PricingRoute: PricingRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   AdminLoginRoute: AdminLoginRoute,
   CheckoutTokenRoute: CheckoutTokenRoute,
   OnboardingClientIdRoute: OnboardingClientIdRoute,
@@ -309,8 +392,18 @@ const rootRouteChildren: RootRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
   OnboardingDnsSetupClientIdRoute: OnboardingDnsSetupClientIdRoute,
+  PrintClientClientIdRoute: PrintClientClientIdRoute,
   SitesClientIdFilenameRoute: SitesClientIdFilenameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

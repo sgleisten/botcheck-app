@@ -34,7 +34,7 @@ export interface Env {
 
 // The profile route only serves these two files today; mirror that here so the
 // Worker 404s fast on anything else without a round-trip upstream.
-const SUPPORTED_FILES = new Set(['llms.txt', 'tools.json'])
+const SUPPORTED_FILES = new Set(['llms.txt', 'tools.json', 'index.json', 'jsonld'])
 
 // Edge-cache the hostname -> client mapping so we don't hit Supabase on every
 // request. Short TTL keeps re-registrations / churn from going stale for long.

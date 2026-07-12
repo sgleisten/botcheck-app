@@ -171,12 +171,11 @@ function PrintReport() {
         <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>{scan.before_after.ai_with_botcheck}</p>
       </div>
 
-      {/* Footer CTA */}
+      {/* Footer */}
       <div style={{ marginTop: 36, padding: 20, borderRadius: 12, background: '#2a5d67', color: '#fdf8e1', textAlign: 'center' }}>
-        <div style={{ fontWeight: 800, fontSize: 16, color: '#e8a054' }}>Want BotCheck to fix this for you?</div>
+        <div style={{ fontWeight: 800, fontSize: 16, color: '#e8a054' }}>Ready to improve your AI presence?</div>
         <p style={{ margin: '8px 0 0', fontSize: 13, color: '#fdf8e1cc' }}>
-          We build your AI profile, host it, and keep it current. Plans start at $299/mo.
-          Visit {(process.env.APP_URL ?? 'https://botcheck-app.vercel.app').replace(/\/+$/, '')}/pricing to get started.
+          Contact your agency to deploy llms.txt, tools.json, and Cloudflare agent surfaces for your business.
         </p>
       </div>
     </div>

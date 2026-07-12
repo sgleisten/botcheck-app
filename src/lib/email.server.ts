@@ -60,6 +60,35 @@ export async function sendProfileReviewEmail(data: ProfileReviewEmail): Promise<
   )
 }
 
+export type AgencyLeadEmail = {
+  name: string
+  agency: string
+  clients: string
+  website: string
+}
+
+export async function sendAgencyLeadEmail(data: AgencyLeadEmail): Promise<void> {
+  const adminEmail = process.env.ADMIN_EMAIL
+  if (!adminEmail) {
+    console.warn('[email] ADMIN_EMAIL not configured — skipping agency lead notification')
+    return
+  }
+
+  await sendEmail(
+    adminEmail,
+    `[Agency] Founding partner application — ${data.agency}`,
+    `
+      <p>New founding agency partner application:</p>
+      <ul>
+        <li><strong>Name:</strong> ${data.name}</li>
+        <li><strong>Agency:</strong> ${data.agency}</li>
+        <li><strong>Clients:</strong> ${data.clients || '—'}</li>
+        <li><strong>Website:</strong> ${data.website || '—'}</li>
+      </ul>
+    `,
+  )
+}
+
 export type PostCheckoutEmail = {
   clientId: string
   email: string

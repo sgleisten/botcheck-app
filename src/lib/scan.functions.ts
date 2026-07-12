@@ -58,16 +58,30 @@ function normalizeBeforeAfter(
     win_signals: raw?.win_signals?.filter(Boolean).slice(0, 4) ?? [],
   }
 }
+export type DiscoverabilityCheck = { ok: boolean; detail: string }
+
+export type Discoverability = {
+  /** 0–100, four checks worth 25 each. */
+  score: number
+  robotsAllowsAi: DiscoverabilityCheck
+  structuredData: DiscoverabilityCheck
+  llmsTxt: DiscoverabilityCheck
+  toolsJson: DiscoverabilityCheck
+}
+
 type ScanResult = {
   id: string
   url: string
   ars_score: number
+  /** Site-content readiness (sum of the four categories, 0–100). */
+  site_readiness?: number
   categories: {
     booking: Category
     pricing: Category
     information: Category
     navigation: Category
   }
+  discoverability?: Discoverability
   top_failures: string[]
   quick_wins: string[]
   before_after: BeforeAfter
@@ -121,6 +135,159 @@ function pickSubpages(links: string[] | undefined, baseUrl: string, max = 3): st
     }
   }
   return picked
+}
+
+// ─── AI Discoverability detection ────────────────────────────────────────────
+// Signals AI search/answer engines actually honor today, plus the forward-looking
+// profile files. Each check is worth 25 points.
+
+const AI_CRAWLERS = [
+  'GPTBot',
+  'OAI-SearchBot',
+  'ChatGPT-User',
+  'ClaudeBot',
+  'anthropic-ai',
+  'PerplexityBot',
+  'Google-Extended',
+  'CCBot',
+]
+
+async function fetchText(
+  url: string,
+  timeoutMs = 7000,
+): Promise<{ ok: boolean; status: number; contentType: string; body: string }> {
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      headers: { 'User-Agent': 'BotCheck-Scan/1.0' },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    const body = await res.text()
+    return {
+      ok: res.ok,
+      status: res.status,
+      contentType: (res.headers.get('content-type') ?? '').toLowerCase(),
+      body,
+    }
+  } catch {
+    return { ok: false, status: 0, contentType: '', body: '' }
+  }
+}
+
+/** Heuristic: are the major AI crawlers blocked at the site root by robots.txt? */
+function robotsAllowsAi(robotsBody: string): { ok: boolean; detail: string } {
+  if (!robotsBody.trim()) return { ok: true, detail: 'No robots.txt — AI crawlers allowed by default' }
+
+  // Group rules by user-agent.
+  const groups = new Map<string, string[]>()
+  let current: string[] = []
+  let currentAgents: string[] = []
+  const commit = () => {
+    for (const a of currentAgents) {
+      const existing = groups.get(a) ?? []
+      groups.set(a, existing.concat(current))
+    }
+  }
+  for (const rawLine of robotsBody.split('\n')) {
+    const line = rawLine.replace(/#.*$/, '').trim()
+    if (!line) continue
+    const [field, ...rest] = line.split(':')
+    const key = field.trim().toLowerCase()
+    const value = rest.join(':').trim()
+    if (key === 'user-agent') {
+      if (current.length && currentAgents.length) {
+        commit()
+        current = []
+        currentAgents = []
+      }
+      currentAgents.push(value.toLowerCase())
+    } else if (key === 'disallow' || key === 'allow') {
+      current.push(`${key}:${value}`)
+    }
+  }
+  if (currentAgents.length) commit()
+
+  const blockedFor = (agent: string): boolean => {
+    const rules = groups.get(agent.toLowerCase()) ?? groups.get('*')
+    if (!rules) return false
+    // Blocked if the group disallows the whole site and doesn't re-allow root.
+    const disallowAll = rules.some((r) => r === 'disallow:/' || r === 'disallow:/*')
+    const allowsRoot = rules.some((r) => r === 'allow:/')
+    return disallowAll && !allowsRoot
+  }
+
+  const blocked = AI_CRAWLERS.filter(blockedFor)
+  if (blocked.length) {
+    return { ok: false, detail: `Blocks ${blocked.slice(0, 3).join(', ')}` }
+  }
+  return { ok: true, detail: 'AI crawlers allowed' }
+}
+
+/** Look for valid Schema.org JSON-LD in the page HTML. */
+function detectStructuredData(html: string): { ok: boolean; detail: string } {
+  if (!html) return { ok: false, detail: 'No structured data found' }
+  const matches = [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)]
+  const types = new Set<string>()
+  for (const m of matches) {
+    try {
+      const parsed = JSON.parse(m[1].trim())
+      const collect = (node: unknown) => {
+        if (Array.isArray(node)) node.forEach(collect)
+        else if (node && typeof node === 'object') {
+          const t = (node as Record<string, unknown>)['@type']
+          if (typeof t === 'string') types.add(t)
+          else if (Array.isArray(t)) t.forEach((x) => typeof x === 'string' && types.add(x))
+        }
+      }
+      collect(parsed)
+    } catch {
+      // ignore malformed block
+    }
+  }
+  if (types.size) return { ok: true, detail: `Found: ${[...types].slice(0, 4).join(', ')}` }
+  if (matches.length) return { ok: false, detail: 'JSON-LD present but unparseable' }
+  return { ok: false, detail: 'No structured data found' }
+}
+
+async function detectDiscoverability(rootUrl: string): Promise<Discoverability> {
+  let origin: string
+  try {
+    origin = new URL(rootUrl).origin
+  } catch {
+    origin = rootUrl.replace(/\/+$/, '')
+  }
+
+  const [robotsRes, llmsRes, toolsRes, pageRes] = await Promise.all([
+    fetchText(`${origin}/robots.txt`),
+    fetchText(`${origin}/llms.txt`),
+    fetchText(`${origin}/tools.json`),
+    fetchText(rootUrl),
+  ])
+
+  const robots = robotsRes.status === 0 ? { ok: true, detail: 'robots.txt unreachable — assumed open' } : robotsAllowsAi(robotsRes.body)
+  const structuredData = detectStructuredData(pageRes.body)
+  const llmsTxt: DiscoverabilityCheck =
+    llmsRes.ok && llmsRes.contentType.includes('text/plain') && llmsRes.body.trim().length > 0
+      ? { ok: true, detail: 'llms.txt published' }
+      : { ok: false, detail: 'No llms.txt' }
+
+  let toolsOk = false
+  if (toolsRes.ok && toolsRes.body.trim()) {
+    try {
+      JSON.parse(toolsRes.body)
+      toolsOk = true
+    } catch {
+      toolsOk = false
+    }
+  }
+  const toolsJson: DiscoverabilityCheck = toolsOk
+    ? { ok: true, detail: 'tools.json published' }
+    : { ok: false, detail: 'No tools.json' }
+
+  const checks = [robots, structuredData, llmsTxt, toolsJson]
+  const score = checks.reduce((sum, c) => sum + (c.ok ? 25 : 0), 0)
+
+  return { score, robotsAllowsAi: robots, structuredData, llmsTxt, toolsJson }
 }
 
 /**
@@ -223,14 +390,26 @@ Return ONLY valid JSON, no other text:
 
     parsed.before_after = normalizeBeforeAfter(parsed.before_after, url)
 
-    // 5. Store in DB
+    // 4b. Detect AI-discoverability signals and blend into the headline score.
+    // Site readiness = Claude's sum of the four content categories (0–100).
+    // Headline ARS = 70% site readiness + 30% discoverability, so publishing a
+    // profile / allowing AI crawlers measurably raises the number.
+    const siteReadiness = parsed.ars_score
+    const discoverability = await detectDiscoverability(url)
+    const headline = Math.round(0.7 * siteReadiness + 0.3 * discoverability.score)
+
+    // 5. Store in DB (extra keys ride along in the `categories` jsonb — no migration).
     const { supabaseAdmin } = await import('@/integrations/supabase/client.server')
     const { data: inserted, error } = await supabaseAdmin
       .from('scans')
       .insert({
         url,
-        ars_score: parsed.ars_score,
-        categories: parsed.categories,
+        ars_score: headline,
+        categories: {
+          ...parsed.categories,
+          ai_discoverability: discoverability,
+          site_readiness: siteReadiness,
+        },
         top_failures: parsed.top_failures,
         quick_wins: parsed.quick_wins,
         diff: parsed.before_after,
@@ -243,12 +422,24 @@ Return ONLY valid JSON, no other text:
       throw new Error(`Failed to save scan: ${error?.message ?? 'unknown'}`)
     }
 
-    return { id: inserted.id, url, ...parsed }
+    return {
+      id: inserted.id,
+      url,
+      ...parsed,
+      ars_score: headline,
+      site_readiness: siteReadiness,
+      discoverability,
+    }
 }
 
 export const runScan = createServerFn({ method: 'POST' })
   .validator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data }): Promise<ScanResult> => performScan(data.url))
+
+/** Admin-only: re-run a scan and link the result to a client. */
+export async function rerunScanForAdmin(url: string, clientId: string): Promise<ScanResult> {
+  return performScan(url, clientId)
+}
 
 export const saveEmail = createServerFn({ method: 'POST' })
   .validator((input: unknown) => emailSchema.parse(input))
@@ -306,11 +497,17 @@ export const getScanById = createServerFn({ method: 'GET' })
     if (error || !scan) return null
 
     const diff = scan.diff as Partial<BeforeAfter> | null
+    // Discoverability + site_readiness ride along inside the categories jsonb on
+    // newer scans; pull them out and leave the four typed categories clean.
+    const rawCategories = (scan.categories ?? {}) as Record<string, unknown>
+    const { ai_discoverability, site_readiness, ...categories } = rawCategories
     return {
       id: scan.id,
       url: scan.url,
       ars_score: scan.ars_score ?? 0,
-      categories: scan.categories as ScanResult['categories'],
+      site_readiness: typeof site_readiness === 'number' ? site_readiness : undefined,
+      categories: categories as unknown as ScanResult['categories'],
+      discoverability: (ai_discoverability as Discoverability | undefined) ?? undefined,
       top_failures: (scan.top_failures as string[]) ?? [],
       quick_wins: (scan.quick_wins as string[]) ?? [],
       before_after: normalizeBeforeAfter(diff, scan.url),
