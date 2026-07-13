@@ -44,6 +44,79 @@ export const adminLogout = createServerFn({ method: 'POST' }).handler(async () =
   await session.clear()
 })
 
+const RESET_SENT_MESSAGE =
+  'If that email is registered for admin access, you will receive a password reset link shortly.'
+
+async function getAdminAuthEmail(): Promise<string | null> {
+  const adminUserId = process.env.ADMIN_USER_ID
+  if (!adminUserId) return null
+
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(adminUserId)
+  if (error || !data.user?.email) {
+    const fallback = process.env.ADMIN_EMAIL?.trim()
+    return fallback || null
+  }
+  return data.user.email
+}
+
+export const adminRequestPasswordReset = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => z.object({ email: z.string().email() }).parse(input))
+  .handler(async ({ data }) => {
+    if (!process.env.ADMIN_USER_ID) throw new Error('ADMIN_USER_ID is not configured')
+
+    const adminEmail = await getAdminAuthEmail()
+    if (!adminEmail || adminEmail.toLowerCase() !== data.email.trim().toLowerCase()) {
+      // Same response whether or not the email matches — avoid account enumeration.
+      return { ok: true, message: RESET_SENT_MESSAGE }
+    }
+
+    const { appBaseUrl } = await import('@/lib/billing.server')
+    const redirectTo = `${appBaseUrl()}/admin/update-password`
+
+    const { error } = await supabaseAuth.auth.resetPasswordForEmail(adminEmail, { redirectTo })
+    if (error) {
+      console.error('[admin] resetPasswordForEmail failed:', error.message)
+      throw new Error('Could not send reset email. Try again or reset via Supabase dashboard.')
+    }
+
+    return { ok: true, message: RESET_SENT_MESSAGE }
+  })
+
+export const adminCompletePasswordReset = createServerFn({ method: 'POST' })
+  .validator((input: unknown) =>
+    z
+      .object({
+        accessToken: z.string().min(1),
+        refreshToken: z.string().min(1),
+        password: z.string().min(8, 'Password must be at least 8 characters'),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    const adminUserId = process.env.ADMIN_USER_ID
+    if (!adminUserId) throw new Error('ADMIN_USER_ID is not configured')
+
+    const { data: sessionData, error } = await supabaseAuth.auth.setSession({
+      access_token: data.accessToken,
+      refresh_token: data.refreshToken,
+    })
+
+    if (error || !sessionData.user) {
+      throw new Error('This reset link is invalid or expired. Request a new one.')
+    }
+    if (sessionData.user.id !== adminUserId) {
+      await supabaseAuth.auth.signOut()
+      throw new Error('Not authorized')
+    }
+
+    const { error: updateError } = await supabaseAuth.auth.updateUser({ password: data.password })
+    if (updateError) throw new Error(updateError.message)
+
+    const session = await useSession<AdminSession>(sessionConfig())
+    await session.update({ userId: sessionData.user.id })
+    return { ok: true }
+  })
+
 // ─── Dashboard data ────────────────────────────────────────────────────────────
 
 const getAdminDataSchema = z.object({ includeArchived: z.boolean().optional() })

@@ -21,6 +21,7 @@ import { Route as PrintScanIdRouteImport } from './routes/print/$scanId'
 import { Route as OnboardingStatusRouteImport } from './routes/onboarding/status'
 import { Route as OnboardingClientIdRouteImport } from './routes/onboarding/$clientId'
 import { Route as CheckoutTokenRouteImport } from './routes/checkout/$token'
+import { Route as AdminUpdatePasswordRouteImport } from './routes/admin/update-password'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as SitesClientIdFilenameRouteImport } from './routes/sites/$clientId/$filename'
 import { Route as PrintClientClientIdRouteImport } from './routes/print/client/$clientId'
@@ -87,6 +88,11 @@ const CheckoutTokenRoute = CheckoutTokenRouteImport.update({
   path: '/checkout/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminUpdatePasswordRoute = AdminUpdatePasswordRouteImport.update({
+  id: '/admin/update-password',
+  path: '/admin/update-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/admin/login',
   path: '/admin/login',
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/update-password': typeof AdminUpdatePasswordRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/update-password': typeof AdminUpdatePasswordRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/update-password': typeof AdminUpdatePasswordRoute
   '/checkout/$token': typeof CheckoutTokenRoute
   '/onboarding/$clientId': typeof OnboardingClientIdRoute
   '/onboarding/status': typeof OnboardingStatusRoute
@@ -182,6 +191,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/sitemap.xml'
     | '/admin/login'
+    | '/admin/update-password'
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/sitemap.xml'
     | '/admin/login'
+    | '/admin/update-password'
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/sitemap.xml'
     | '/admin/login'
+    | '/admin/update-password'
     | '/checkout/$token'
     | '/onboarding/$clientId'
     | '/onboarding/status'
@@ -240,6 +252,7 @@ export interface RootRouteChildren {
   PricingRoute: typeof PricingRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminUpdatePasswordRoute: typeof AdminUpdatePasswordRoute
   CheckoutTokenRoute: typeof CheckoutTokenRoute
   OnboardingClientIdRoute: typeof OnboardingClientIdRoute
   OnboardingStatusRoute: typeof OnboardingStatusRoute
@@ -338,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CheckoutTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/update-password': {
+      id: '/admin/update-password'
+      path: '/admin/update-password'
+      fullPath: '/admin/update-password'
+      preLoaderRoute: typeof AdminUpdatePasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/login': {
       id: '/admin/login'
       path: '/admin/login'
@@ -384,6 +404,7 @@ const rootRouteChildren: RootRouteChildren = {
   PricingRoute: PricingRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AdminUpdatePasswordRoute: AdminUpdatePasswordRoute,
   CheckoutTokenRoute: CheckoutTokenRoute,
   OnboardingClientIdRoute: OnboardingClientIdRoute,
   OnboardingStatusRoute: OnboardingStatusRoute,

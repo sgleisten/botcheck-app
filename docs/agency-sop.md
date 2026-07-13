@@ -112,6 +112,7 @@ You cannot guarantee ChatGPT browse or training inclusion — frame it as tested
 | Hostname stuck pending | Client must add CNAME; click **Check status**; see `docs/DEPLOY.md` §7 |
 | Profile 404 on `/sites/...` | Profile must be **approved** (status `live`) |
 | Deploy panel errors on brand check | Confirm `brand_checks` migration ran with RLS enabled |
+| Can't log into `/admin` | Use `/admin/login` → **Forgot password**; or `node scripts/reset-admin-password.mjs '...'`; see `docs/DEPLOY.md` § Admin login |
 
 ---
 
