@@ -555,7 +555,20 @@ function AdminDashboard() {
   return (
     <div className="min-h-screen bg-cream p-6 space-y-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between border-b-2 border-teal pb-4">
-        <h1 className="text-2xl font-extrabold text-teal">Admin</h1>
+        <div>
+          <h1 className="text-2xl font-extrabold text-teal">Admin</h1>
+          <p className="text-xs text-teal/60 mt-1">
+            Service checklist:{' '}
+            <a
+              href="https://github.com/sgleisten/botcheck-app/blob/main/docs/agency-sop.md"
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-teal"
+            >
+              docs/agency-sop.md
+            </a>
+          </p>
+        </div>
         <div className="flex items-center gap-4">
           <button
             type="button"

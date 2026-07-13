@@ -552,6 +552,9 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             .eq('id', existingClient.id)
         }
 
+        const { ensureBaselineScan } = await import('./client-scans.server')
+        await ensureBaselineScan(supabaseAdmin, existingClient.id, data.scanId)
+
         const url = await createStripeCheckoutSession({
           clientId: existingClient.id,
           domain,
@@ -579,7 +582,8 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
 
     if (error || !client) throw new Error(`Failed to create client: ${error?.message}`)
 
-    await supabaseAdmin.from('scans').update({ client_id: client.id }).eq('id', data.scanId)
+    const { ensureBaselineScan } = await import('./client-scans.server')
+    await ensureBaselineScan(supabaseAdmin, client.id, data.scanId)
 
     const url = await createStripeCheckoutSession({
       clientId: client.id,

@@ -76,6 +76,9 @@ export const Route = createFileRoute('/api/webhooks/stripe')({
               return new Response('Database error', { status: 500 })
             }
 
+            const { ensureBaselineScan } = await import('@/lib/client-scans.server')
+            await ensureBaselineScan(supabase, clientId, session.metadata?.scan_id ?? null)
+
             const email = session.customer_email ?? session.customer_details?.email
             if (email) {
               try {

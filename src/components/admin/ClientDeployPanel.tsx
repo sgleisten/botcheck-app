@@ -159,7 +159,15 @@ export function ClientDeployPanel({ clientId, domain, onClose, onUpdated }: Prop
           <div>
             <h3 className="text-lg font-extrabold text-teal">Deploy — {domain}</h3>
             <p className="text-xs text-teal/60 mt-1">
-              Cloudflare for every client{data?.client.hostingAccess ? ' + on-site files' : ''}
+              Cloudflare for every client{data?.client.hostingAccess ? ' + on-site files' : ''}.{' '}
+              <a
+                href="https://github.com/sgleisten/botcheck-app/blob/main/docs/agency-sop.md"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                Full SOP
+              </a>
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-sm text-teal/60 hover:text-teal">

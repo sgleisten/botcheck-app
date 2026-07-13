@@ -131,7 +131,8 @@ export const createCheckoutForClientId = createServerFn({ method: 'POST' })
     const billing = client as ClientBilling
 
     if (data.scanId) {
-      await supabaseAdmin.from('scans').update({ client_id: billing.id }).eq('id', data.scanId)
+      const { ensureBaselineScan } = await import('./client-scans.server')
+      await ensureBaselineScan(supabaseAdmin, billing.id, data.scanId)
     }
 
     const url = await createStripeCheckoutSession({
