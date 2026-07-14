@@ -3,6 +3,7 @@ import { useSession } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import { supabaseAdmin, supabaseAuth } from '@/integrations/supabase/client.server'
 import {
+  appBaseUrl,
   checkoutUrl,
   generateCheckoutToken,
   onboardingUrl,
@@ -70,8 +71,12 @@ export const adminRequestPasswordReset = createServerFn({ method: 'POST' })
       return { ok: true, message: RESET_SENT_MESSAGE }
     }
 
-    const { appBaseUrl } = await import('@/lib/billing.server')
     const redirectTo = `${appBaseUrl()}/admin/update-password`
+    if (process.env.VERCEL && /localhost|127\.0\.0\.1/.test(redirectTo)) {
+      throw new Error(
+        'Password reset is misconfigured: APP_URL is missing. Set APP_URL=https://www.botcheck.io in Vercel Production, and Supabase Auth → Site URL to the same domain.',
+      )
+    }
 
     const { error } = await supabaseAuth.auth.resetPasswordForEmail(adminEmail, { redirectTo })
     if (error) {
@@ -586,11 +591,6 @@ export const rerunScan = createServerFn({ method: 'POST' })
   })
 
 // ─── Agency deploy & before/after tracking ───────────────────────────────────
-
-function appBaseUrl(): string {
-  const url = process.env.APP_URL?.trim()
-  return url && url.length > 0 ? url.replace(/\/+$/, '') : 'http://localhost:3000'
-}
 
 export const getClientDeployData = createServerFn({ method: 'GET' })
   .validator((input: unknown) => clientIdSchema.parse(input))

@@ -1,8 +1,9 @@
+import { appBaseUrl } from '@/lib/billing.server'
+
 const FROM = process.env.EMAIL_FROM ?? 'BotCheck <notifications@botcheck.io>'
 
 function appUrl(): string {
-  const url = process.env.APP_URL?.trim()
-  return url && url.length > 0 ? url.replace(/\/+$/, '') : 'http://localhost:3000'
+  return appBaseUrl()
 }
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {

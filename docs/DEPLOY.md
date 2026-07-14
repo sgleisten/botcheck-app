@@ -64,11 +64,14 @@ Admin sign-in uses **Supabase Auth** (email + password). The password is **not**
 
 **Sign in:** `https://botcheck.io/admin/login` with the email on the Supabase user whose id matches `ADMIN_USER_ID` (typically the same address as `ADMIN_EMAIL`, e.g. `sam@aieducators.ai`).
 
-**Forgot password (in app):** On `/admin/login`, enter your admin email and click **Forgot password? Send reset link**. You must configure Supabase redirect URLs first:
+**Forgot password (in app):** On `/admin/login`, enter your admin email and click **Forgot password? Send reset link**. Configure **both** Vercel and Supabase:
 
-1. Supabase Dashboard → **Authentication** → **URL Configuration**
-2. **Site URL:** `https://botcheck.io`
-3. **Redirect URLs:** add `https://botcheck.io/admin/update-password` (and `http://localhost:3000/admin/update-password` for local dev)
+1. **Vercel** → Production env: `APP_URL=https://www.botcheck.io` → redeploy
+2. **Supabase Dashboard** → **Authentication** → **URL Configuration**
+   - **Site URL:** `https://www.botcheck.io` (not `http://localhost:3000` — that is why reset emails open localhost)
+   - **Redirect URLs:** add `https://www.botcheck.io/admin/update-password` (and `http://localhost:3000/admin/update-password` for local dev only)
+
+If a reset email still points at localhost, fix Site URL in Supabase and request a **new** reset link.
 
 **Emergency reset (local script):** With service role in `.env`:
 

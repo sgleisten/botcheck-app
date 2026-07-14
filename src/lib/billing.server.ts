@@ -80,8 +80,23 @@ export function resolveCheckoutLineItems(
 }
 
 export function appBaseUrl(): string {
-  const url = process.env.APP_URL?.trim()
-  return url && url.length > 0 ? url.replace(/\/+$/, '') : 'http://localhost:3000'
+  const configured = process.env.APP_URL?.trim()
+  if (configured) return configured.replace(/\/+$/, '')
+
+  // On Vercel without APP_URL, never fall back to localhost — use the deployment host.
+  const vercelProduction = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
+  if (vercelProduction) {
+    const host = vercelProduction.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+    return `https://${host}`
+  }
+
+  const vercelHost = process.env.VERCEL_URL?.trim()
+  if (vercelHost) {
+    const host = vercelHost.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+    return `https://${host}`
+  }
+
+  return 'http://localhost:3000'
 }
 
 export function checkoutUrl(token: string): string {
