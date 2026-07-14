@@ -2,6 +2,8 @@
 
 One tier for every client. Cloudflare for everyone; on-site files when you have hosting access.
 
+**Full guide:** See [`agency-delivery-guide.md`](agency-delivery-guide.md) for architecture, DNS details, and what changes when you add a client CNAME.
+
 **Console:** `https://botcheck.io/admin` (or `{APP_URL}/admin`)
 
 ---

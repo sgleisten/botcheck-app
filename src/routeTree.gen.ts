@@ -27,6 +27,7 @@ import { Route as SitesClientIdFilenameRouteImport } from './routes/sites/$clien
 import { Route as PrintClientClientIdRouteImport } from './routes/print/client/$clientId'
 import { Route as OnboardingDnsSetupClientIdRouteImport } from './routes/onboarding/dns-setup/$clientId'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
+import { Route as AdminClientClientIdRouteImport } from './routes/admin/client/$clientId'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -119,6 +120,11 @@ const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
   path: '/api/webhooks/stripe',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminClientClientIdRoute = AdminClientClientIdRouteImport.update({
+  id: '/admin/client/$clientId',
+  path: '/admin/client/$clientId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/print/$scanId': typeof PrintScanIdRoute
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/client/$clientId': typeof AdminClientClientIdRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
   '/print/client/$clientId': typeof PrintClientClientIdRoute
@@ -155,6 +162,7 @@ export interface FileRoutesByTo {
   '/print/$scanId': typeof PrintScanIdRoute
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin': typeof AdminIndexRoute
+  '/admin/client/$clientId': typeof AdminClientClientIdRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
   '/print/client/$clientId': typeof PrintClientClientIdRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   '/print/$scanId': typeof PrintScanIdRoute
   '/report/$scanId': typeof ReportScanIdRoute
   '/admin/': typeof AdminIndexRoute
+  '/admin/client/$clientId': typeof AdminClientClientIdRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
   '/onboarding/dns-setup/$clientId': typeof OnboardingDnsSetupClientIdRoute
   '/print/client/$clientId': typeof PrintClientClientIdRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/print/$scanId'
     | '/report/$scanId'
     | '/admin/'
+    | '/admin/client/$clientId'
     | '/api/webhooks/stripe'
     | '/onboarding/dns-setup/$clientId'
     | '/print/client/$clientId'
@@ -218,6 +228,7 @@ export interface FileRouteTypes {
     | '/print/$scanId'
     | '/report/$scanId'
     | '/admin'
+    | '/admin/client/$clientId'
     | '/api/webhooks/stripe'
     | '/onboarding/dns-setup/$clientId'
     | '/print/client/$clientId'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/print/$scanId'
     | '/report/$scanId'
     | '/admin/'
+    | '/admin/client/$clientId'
     | '/api/webhooks/stripe'
     | '/onboarding/dns-setup/$clientId'
     | '/print/client/$clientId'
@@ -259,6 +271,7 @@ export interface RootRouteChildren {
   PrintScanIdRoute: typeof PrintScanIdRoute
   ReportScanIdRoute: typeof ReportScanIdRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminClientClientIdRoute: typeof AdminClientClientIdRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
   OnboardingDnsSetupClientIdRoute: typeof OnboardingDnsSetupClientIdRoute
   PrintClientClientIdRoute: typeof PrintClientClientIdRoute
@@ -393,6 +406,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWebhooksStripeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/client/$clientId': {
+      id: '/admin/client/$clientId'
+      path: '/admin/client/$clientId'
+      fullPath: '/admin/client/$clientId'
+      preLoaderRoute: typeof AdminClientClientIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -411,6 +431,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrintScanIdRoute: PrintScanIdRoute,
   ReportScanIdRoute: ReportScanIdRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminClientClientIdRoute: AdminClientClientIdRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
   OnboardingDnsSetupClientIdRoute: OnboardingDnsSetupClientIdRoute,
   PrintClientClientIdRoute: PrintClientClientIdRoute,

@@ -757,7 +757,11 @@ export const recordBrandCheck = createServerFn({ method: 'POST' })
   })
 
 export const getClientReportData = createServerFn({ method: 'GET' })
-  .validator((input: unknown) => clientIdSchema.parse(input))
+  .validator((input: unknown) =>
+    z
+      .object({ clientId: z.string().uuid(), snapshotId: z.string().uuid().optional() })
+      .parse(input),
+  )
   .handler(async ({ data }) => {
     await assertAdmin()
 
@@ -771,48 +775,433 @@ export const getClientReportData = createServerFn({ method: 'GET' })
 
     if (error || !client) throw new Error('Client not found')
 
-    const scanIds = [client.baseline_scan_id, client.post_delivery_scan_id].filter(Boolean) as string[]
-    const scansById = new Map<string, { ars_score: number | null; created_at: string }>()
-    if (scanIds.length > 0) {
-      const { data: scans } = await supabaseAdmin
-        .from('scans')
-        .select('id, ars_score, created_at')
-        .in('id', scanIds)
-      for (const s of scans ?? []) {
-        scansById.set(s.id as string, {
-          ars_score: s.ars_score as number | null,
-          created_at: s.created_at as string,
-        })
-      }
-    }
-
-    const { data: brandChecks } = await supabaseAdmin
-      .from('brand_checks')
-      .select('check_type, mention_count, model_count, created_at')
-      .eq('client_id', data.clientId)
-      .order('created_at', { ascending: true })
-
-    const baseline = client.baseline_scan_id
-      ? scansById.get(client.baseline_scan_id as string)
-      : null
-    const post = client.post_delivery_scan_id
-      ? scansById.get(client.post_delivery_scan_id as string)
-      : null
-
-    return {
+    const base = {
       domain: client.domain as string,
       businessName: client.business_name as string | null,
       customHostname: client.custom_hostname as string | null,
       hostingAccess: Boolean(client.hosting_access),
-      baselineScore: baseline?.ars_score ?? null,
-      postDeliveryScore: post?.ars_score ?? null,
-      baselineDate: baseline?.created_at ?? null,
-      postDeliveryDate: post?.created_at ?? null,
-      brandChecks: (brandChecks ?? []) as Array<{
-        check_type: string
-        mention_count: number
-        model_count: number
-        created_at: string
-      }>,
     }
+
+    // Snapshot mode: render a frozen, dated record.
+    if (data.snapshotId) {
+      const { data: snap, error: snapError } = await supabaseAdmin
+        .from('client_report_snapshots')
+        .select('id, phase, label, ars_score, site_readiness, discoverability_score, findings, brand_summary, captured_at')
+        .eq('id', data.snapshotId)
+        .eq('client_id', data.clientId)
+        .single()
+      if (snapError || !snap) throw new Error('Snapshot not found')
+
+      const findings = (snap.findings ?? {}) as {
+        top_failures?: string[]
+        quick_wins?: string[]
+        categories?: CategoryFinding[]
+      }
+      const brand = (snap.brand_summary ?? {}) as {
+        model_count?: number
+        mention_count?: number
+        results?: Array<{ prompt: string; model: string; mentioned: boolean }>
+      }
+      return {
+        ...base,
+        mode: 'snapshot' as const,
+        capturedAt: snap.captured_at as string,
+        phase: snap.phase as string,
+        label: (snap.label as string | null) ?? null,
+        score: (snap.ars_score as number | null) ?? null,
+        topFailures: findings.top_failures ?? [],
+        quickWins: findings.quick_wins ?? [],
+        categories: findings.categories ?? [],
+        brandModelCount: brand.model_count ?? 0,
+        brandMentionCount: brand.mention_count ?? 0,
+        brandResults: brand.results ?? [],
+      }
+    }
+
+    // Live mode: baseline vs post composite.
+    const [baseline, post] = await Promise.all([
+      loadScanFindings(client.baseline_scan_id as string | null),
+      loadScanFindings(client.post_delivery_scan_id as string | null),
+    ])
+
+    const { data: brandRows } = await supabaseAdmin
+      .from('brand_visibility_results')
+      .select('id, phase, prompt, model, mentioned, response_excerpt, notes, created_at')
+      .eq('client_id', data.clientId)
+      .order('created_at', { ascending: false })
+    const rows = (brandRows ?? []) as BrandResultRow[]
+    const baselineBrand = rows.filter((r) => r.phase === 'baseline')
+    const postBrand = rows.filter((r) => r.phase === 'post_delivery')
+
+    return {
+      ...base,
+      mode: 'live' as const,
+      capturedAt: new Date().toISOString(),
+      baselineScore: baseline?.score ?? null,
+      postDeliveryScore: post?.score ?? null,
+      baselineDate: baseline?.createdAt ?? null,
+      postDeliveryDate: post?.createdAt ?? null,
+      baselineFindings: baseline
+        ? { topFailures: baseline.topFailures, quickWins: baseline.quickWins }
+        : null,
+      postFindings: post
+        ? { topFailures: post.topFailures, quickWins: post.quickWins }
+        : null,
+      brand: {
+        baseline: baselineBrand,
+        post: postBrand,
+        baselineSummary: summarizeBrandResults(baselineBrand),
+        postSummary: summarizeBrandResults(postBrand),
+      },
+    }
+  })
+
+// ─── Consolidated client workspace ───────────────────────────────────────────
+
+const CATEGORY_META_KEYS = new Set(['ai_discoverability', 'site_readiness'])
+
+type CategoryFinding = { key: string; label: string; score: number | null; finding: string | null }
+
+function cleanCategories(categories: Record<string, unknown>): CategoryFinding[] {
+  const out: CategoryFinding[] = []
+  for (const [key, val] of Object.entries(categories)) {
+    if (CATEGORY_META_KEYS.has(key)) continue
+    if (val && typeof val === 'object' && 'score' in (val as Record<string, unknown>)) {
+      const v = val as { score?: number; finding?: string }
+      out.push({
+        key,
+        label: key.replace(/_/g, ' '),
+        score: typeof v.score === 'number' ? v.score : null,
+        finding: typeof v.finding === 'string' ? v.finding : null,
+      })
+    }
+  }
+  return out
+}
+
+type ScanFindings = {
+  id: string
+  score: number | null
+  siteReadiness: number | null
+  discoverabilityScore: number | null
+  topFailures: string[]
+  quickWins: string[]
+  categories: CategoryFinding[]
+  createdAt: string | null
+}
+
+async function loadScanFindings(scanId: string | null): Promise<ScanFindings | null> {
+  if (!scanId) return null
+  const { data } = await supabaseAdmin
+    .from('scans')
+    .select('id, ars_score, categories, top_failures, quick_wins, created_at')
+    .eq('id', scanId)
+    .maybeSingle()
+  if (!data) return null
+  const categories = (data.categories ?? {}) as Record<string, unknown>
+  const disc = categories.ai_discoverability as { score?: number } | undefined
+  return {
+    id: data.id as string,
+    score: (data.ars_score as number | null) ?? null,
+    siteReadiness: (categories.site_readiness as number | null) ?? null,
+    discoverabilityScore: typeof disc?.score === 'number' ? disc.score : null,
+    topFailures: (data.top_failures as string[] | null) ?? [],
+    quickWins: (data.quick_wins as string[] | null) ?? [],
+    categories: cleanCategories(categories),
+    createdAt: (data.created_at as string | null) ?? null,
+  }
+}
+
+type BrandResultRow = {
+  id: string
+  phase: string
+  prompt: string
+  model: string
+  mentioned: boolean
+  response_excerpt: string | null
+  notes: string | null
+  created_at: string
+}
+
+function summarizeBrandResults(rows: BrandResultRow[]): {
+  modelCount: number
+  mentionCount: number
+} {
+  const models = new Map<string, boolean>()
+  for (const r of rows) {
+    models.set(r.model, (models.get(r.model) ?? false) || r.mentioned)
+  }
+  let mentionCount = 0
+  for (const mentioned of models.values()) if (mentioned) mentionCount++
+  return { modelCount: models.size, mentionCount }
+}
+
+export const getClientDetail = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { buildIndexJson, buildJsonLd, onSiteDeployChecklist, profileFileUrl } = await import(
+      './profile-surfaces'
+    )
+
+    const { data: client, error: clientError } = await supabaseAdmin
+      .from('clients')
+      .select(
+        'id, domain, business_name, contact_email, status, plan, notes, hosting_access, custom_hostname, custom_hostname_status, custom_hostname_error, dns_verified, baseline_scan_id, post_delivery_scan_id, last_scanned_at, created_at',
+      )
+      .eq('id', data.clientId)
+      .single()
+
+    if (clientError || !client) throw new Error('Client not found')
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, status, version, llms_txt, tools_json, robots_txt_additions, generated_at')
+      .eq('client_id', data.clientId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const [baseline, post] = await Promise.all([
+      loadScanFindings(client.baseline_scan_id as string | null),
+      loadScanFindings(client.post_delivery_scan_id as string | null),
+    ])
+
+    const { data: brandRows } = await supabaseAdmin
+      .from('brand_visibility_results')
+      .select('id, phase, prompt, model, mentioned, response_excerpt, notes, created_at')
+      .eq('client_id', data.clientId)
+      .order('created_at', { ascending: false })
+
+    const { data: snapshots } = await supabaseAdmin
+      .from('client_report_snapshots')
+      .select('id, phase, label, ars_score, captured_at')
+      .eq('client_id', data.clientId)
+      .order('captured_at', { ascending: false })
+
+    const appUrl = appBaseUrl()
+    const surfaceInput = {
+      businessName: client.business_name as string | null,
+      domain: client.domain as string,
+      llmsTxt: (profile?.llms_txt as string | null) ?? null,
+      toolsJson: profile?.tools_json ?? null,
+    }
+    const jsonLd = JSON.stringify(buildJsonLd(surfaceInput), null, 2)
+
+    const brandResults = (brandRows ?? []) as BrandResultRow[]
+    const baselineBrand = brandResults.filter((r) => r.phase === 'baseline')
+    const postBrand = brandResults.filter((r) => r.phase === 'post_delivery')
+
+    return {
+      client: {
+        id: client.id as string,
+        domain: client.domain as string,
+        businessName: client.business_name as string | null,
+        contactEmail: client.contact_email as string | null,
+        status: client.status as string,
+        plan: client.plan as string | null,
+        notes: (client.notes as string | null) ?? null,
+        hostingAccess: Boolean(client.hosting_access),
+        customHostname: client.custom_hostname as string | null,
+        customHostnameStatus: client.custom_hostname_status as string | null,
+        customHostnameError: (client.custom_hostname_error as string | null) ?? null,
+        dnsVerified: Boolean(client.dns_verified),
+        lastScannedAt: (client.last_scanned_at as string | null) ?? null,
+        createdAt: client.created_at as string,
+      },
+      profile: profile
+        ? {
+            id: profile.id as string,
+            status: profile.status as string,
+            version: profile.version as number,
+            llmsTxt: (profile.llms_txt as string | null) ?? '',
+            toolsJson: profile.tools_json ? JSON.stringify(profile.tools_json, null, 2) : '',
+            robotsTxtAdditions: (profile.robots_txt_additions as string | null) ?? '',
+            generatedAt: (profile.generated_at as string | null) ?? null,
+          }
+        : null,
+      scans: { baseline, post },
+      brand: {
+        baseline: baselineBrand,
+        post: postBrand,
+        baselineSummary: summarizeBrandResults(baselineBrand),
+        postSummary: summarizeBrandResults(postBrand),
+      },
+      snapshots: (snapshots ?? []) as Array<{
+        id: string
+        phase: string
+        label: string | null
+        ars_score: number | null
+        captured_at: string
+      }>,
+      urls: {
+        llmsTxt: profileFileUrl(appUrl, data.clientId, 'llms.txt'),
+        toolsJson: profileFileUrl(appUrl, data.clientId, 'tools.json'),
+        indexJson: profileFileUrl(appUrl, data.clientId, 'index.json'),
+        jsonld: profileFileUrl(appUrl, data.clientId, 'jsonld'),
+        dnsSetup: `${appUrl}/onboarding/dns-setup/${data.clientId}`,
+        onboarding: `${appUrl}/onboarding/${data.clientId}`,
+        clientReport: `${appUrl}/print/client/${data.clientId}`,
+      },
+      jsonLdSnippet: `<script type="application/ld+json">\n${jsonLd}\n</script>`,
+      indexJsonPreview: JSON.stringify(buildIndexJson(surfaceInput), null, 2),
+      onSiteChecklist: onSiteDeployChecklist(client.domain as string),
+      fallbackOrigin: process.env.CLOUDFLARE_FALLBACK_ORIGIN?.trim() || 'fallback.botcheck.io',
+      cloudflareConfigured: Boolean(
+        process.env.CLOUDFLARE_API_TOKEN?.trim() && process.env.CLOUDFLARE_ZONE_ID?.trim(),
+      ),
+      brandTemplateUrl: 'https://github.com/cloudflare/templates/tree/main/ai-brand-visibility-template',
+    }
+  })
+
+export const generateBrandPrompts = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }): Promise<{ prompts: string[] }> => {
+    await assertAdmin()
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .select('domain, business_name')
+      .eq('id', data.clientId)
+      .single()
+    if (error || !client) throw new Error('Client not found')
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('llms_txt')
+      .eq('client_id', data.clientId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const summary = ((profile?.llms_txt as string | null) ?? '').slice(0, 4000)
+    const name = (client.business_name as string | null) || (client.domain as string)
+
+    const { generateBrandVisibilityPrompts } = await import('./scan.functions')
+    const prompts = await generateBrandVisibilityPrompts(name, client.domain as string, summary)
+    return { prompts }
+  })
+
+const brandResultSchema = z.object({
+  clientId: z.string().uuid(),
+  phase: z.enum(['baseline', 'post_delivery']),
+  prompt: z.string().min(1).max(2000),
+  model: z.string().min(1).max(120),
+  mentioned: z.boolean(),
+  responseExcerpt: z.string().max(4000).optional(),
+  notes: z.string().max(2000).optional(),
+})
+
+export const recordBrandVisibilityResult = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => brandResultSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { data: row, error } = await supabaseAdmin
+      .from('brand_visibility_results')
+      .insert({
+        client_id: data.clientId,
+        phase: data.phase,
+        prompt: data.prompt.trim(),
+        model: data.model.trim(),
+        mentioned: data.mentioned,
+        response_excerpt: data.responseExcerpt?.trim() || null,
+        notes: data.notes?.trim() || null,
+      })
+      .select('id')
+      .single()
+    if (error || !row) throw new Error(error?.message ?? 'Failed to record result')
+    return { id: row.id as string }
+  })
+
+export const deleteBrandVisibilityResult = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { error } = await supabaseAdmin
+      .from('brand_visibility_results')
+      .delete()
+      .eq('id', data.id)
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
+
+const snapshotSchema = z.object({
+  clientId: z.string().uuid(),
+  phase: z.enum(['pre', 'post']),
+  label: z.string().max(200).optional(),
+})
+
+export const saveReportSnapshot = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => snapshotSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .select('id, baseline_scan_id, post_delivery_scan_id')
+      .eq('id', data.clientId)
+      .single()
+    if (error || !client) throw new Error('Client not found')
+
+    const scanId =
+      data.phase === 'pre'
+        ? (client.baseline_scan_id as string | null)
+        : (client.post_delivery_scan_id as string | null)
+    const findings = await loadScanFindings(scanId)
+
+    const brandPhase = data.phase === 'pre' ? 'baseline' : 'post_delivery'
+    const { data: brandRows } = await supabaseAdmin
+      .from('brand_visibility_results')
+      .select('id, phase, prompt, model, mentioned, response_excerpt, notes, created_at')
+      .eq('client_id', data.clientId)
+      .eq('phase', brandPhase)
+      .order('created_at', { ascending: false })
+
+    const rows = (brandRows ?? []) as BrandResultRow[]
+    const summary = summarizeBrandResults(rows)
+
+    const { data: snap, error: insertError } = await supabaseAdmin
+      .from('client_report_snapshots')
+      .insert({
+        client_id: data.clientId,
+        phase: data.phase,
+        label: data.label?.trim() || null,
+        ars_score: findings?.score ?? null,
+        site_readiness: findings?.siteReadiness ?? null,
+        discoverability_score: findings?.discoverabilityScore ?? null,
+        findings: findings
+          ? {
+              top_failures: findings.topFailures,
+              quick_wins: findings.quickWins,
+              categories: findings.categories,
+            }
+          : {},
+        brand_summary: {
+          model_count: summary.modelCount,
+          mention_count: summary.mentionCount,
+          results: rows.map((r) => ({
+            prompt: r.prompt,
+            model: r.model,
+            mentioned: r.mentioned,
+          })),
+        },
+      })
+      .select('id')
+      .single()
+
+    if (insertError || !snap) throw new Error(insertError?.message ?? 'Failed to save snapshot')
+    return { id: snap.id as string }
+  })
+
+export const deleteReportSnapshot = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { error } = await supabaseAdmin
+      .from('client_report_snapshots')
+      .delete()
+      .eq('id', data.id)
+    if (error) throw new Error(error.message)
+    return { ok: true }
   })

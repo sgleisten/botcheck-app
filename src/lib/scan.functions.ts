@@ -8,6 +8,48 @@ function getAnthropic(): Anthropic {
   return _anthropic
 }
 
+/**
+ * Server-only helper: suggest neutral consumer questions an AI assistant might
+ * be asked where this business should ideally surface. Kept here (not in
+ * admin.functions) so the Anthropic SDK stays out of the client bundle.
+ */
+export async function generateBrandVisibilityPrompts(
+  name: string,
+  domain: string,
+  summary: string,
+): Promise<string[]> {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not configured')
+
+  const response = await getAnthropic().messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 700,
+    messages: [
+      {
+        role: 'user',
+        content: `A person might ask an AI assistant (ChatGPT, Claude, Gemini, etc.) a natural question and we want to see whether this business gets recommended.
+
+Business: ${name}
+Website: ${domain}
+Profile summary:
+${summary || '(no profile yet)'}
+
+Write 8 realistic consumer questions someone would ask an AI assistant where THIS business should ideally be recommended (by service + location if known). Do NOT mention the business name in the questions — they must be neutral discovery questions. Return ONLY a JSON array of strings, no prose.`,
+      },
+    ],
+  })
+
+  const text = response.content.find((b) => b.type === 'text')
+  const raw = text && text.type === 'text' ? text.text : '[]'
+  const match = raw.match(/\[[\s\S]*\]/)
+  try {
+    const parsed = match ? (JSON.parse(match[0]) as unknown) : []
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((p): p is string => typeof p === 'string' && p.trim().length > 0).slice(0, 12)
+  } catch {
+    return []
+  }
+}
+
 const inputSchema = z.object({
   url: z.string().url().max(2048),
 })

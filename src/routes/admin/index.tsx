@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { createFileRoute, useRouter, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
   getAdminData,
@@ -15,7 +15,6 @@ import {
   rerunScan,
 } from '@/lib/admin.functions'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
-import { ClientDeployPanel } from '@/components/admin/ClientDeployPanel'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 
@@ -152,8 +151,6 @@ function AdminDashboard() {
     notes: '',
     hostingAccess: false,
   })
-  const [deployPanel, setDeployPanel] = useState<{ clientId: string; domain: string } | null>(null)
-
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [rowBusy, setRowBusy] = useState<Record<string, string>>({})
@@ -959,13 +956,13 @@ function AdminDashboard() {
                     <td className="px-4 py-3 text-teal/60">{fmt(c.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setDeployPanel({ clientId: c.id, domain: c.domain })}
+                        <Link
+                          to="/admin/client/$clientId"
+                          params={{ clientId: c.id }}
                           className="text-xs bg-orange text-teal px-2 py-1 rounded font-semibold hover:opacity-90"
                         >
-                          Deploy
-                        </button>
+                          Open workspace →
+                        </Link>
                         <button
                           type="button"
                           onClick={() => openEdit(c)}
@@ -1166,16 +1163,6 @@ function AdminDashboard() {
           </table>
         </div>
       </section>
-
-      {/* Deploy panel */}
-      {deployPanel && (
-        <ClientDeployPanel
-          clientId={deployPanel.clientId}
-          domain={deployPanel.domain}
-          onClose={() => setDeployPanel(null)}
-          onUpdated={() => void refreshClients()}
-        />
-      )}
 
       {/* Profile view / edit panel */}
       {panel && (

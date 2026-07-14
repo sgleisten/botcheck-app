@@ -7,7 +7,11 @@ const CF_API = 'https://api.cloudflare.com/client/v4'
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
-  if (!value) throw new Error(`${name} is not configured`)
+  if (!value) {
+    throw new Error(
+      `${name} is not configured. Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID in Vercel → Settings → Environment Variables (Production), then redeploy. They already exist in local .env for dev.`,
+    )
+  }
   return value
 }
 

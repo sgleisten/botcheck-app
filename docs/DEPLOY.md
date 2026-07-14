@@ -40,8 +40,8 @@ In Vercel → your project → **Settings** → **Environment Variables**, add e
 | `ADMIN_EMAIL` | **Your inbox** — e.g. `sam@aieducators.ai` — for “profile ready for review” alerts |
 | `APP_URL` | `https://botcheck.io` (apex — the app is now the whole site) |
 | `EMAIL_FROM` | Optional — default `BotCheck <notifications@botcheck.io>` |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare for SaaS — Custom Hostnames Edit + Worker deploy |
-| `CLOUDFLARE_ZONE_ID` | Zone ID for `botcheck.io` |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare for SaaS — Custom Hostnames Edit + Worker deploy. **Required on Vercel** or "Register hostname" fails with "CLOUDFLARE_API_TOKEN is not configured". |
+| `CLOUDFLARE_ZONE_ID` | Zone ID for `botcheck.io`. **Required on Vercel** — the same value is in local `.env`; if hostname registration errors with "CLOUDFLARE_ZONE_ID is not configured", it's missing in Vercel Production. |
 | `CLOUDFLARE_FALLBACK_ORIGIN` | Optional — CNAME target clients point at; default `fallback.botcheck.io` |
 
 After adding or changing env vars, go to **Deployments** → ⋮ on the latest deploy → **Redeploy**.
@@ -169,6 +169,8 @@ APP_URL=https://botcheck.io node scripts/verify-funnel.mjs
 4. Profile loads at `/sites/{clientId}/llms.txt`
 
 ## 7. Client custom subdomains — Cloudflare for SaaS + Worker
+
+For a **step-by-step per-client walkthrough** (what DNS record to give the client, what it connects to, and what changes when it goes live), see [`agency-delivery-guide.md`](agency-delivery-guide.md) §4.
 
 Each client can serve their AI profile from their **own** subdomain (e.g.
 `ai.midstatehealth.net`) with a valid cert on their domain, instead of a
