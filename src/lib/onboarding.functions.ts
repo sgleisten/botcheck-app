@@ -11,7 +11,11 @@ import {
   type SiteScan,
 } from './site-scan'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+let _anthropic: Anthropic | null = null
+function getAnthropic(): Anthropic {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  return _anthropic
+}
 
 const ONBOARDING_INSTRUCTIONS = `\
 You are an AI presence specialist helping a small business owner set up their AI presence files \
@@ -144,7 +148,7 @@ export const runOnboardingChat = createServerFn({ method: 'POST' })
 
     const { messages, siteScan } = data
 
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 2048,
       system: [
@@ -198,7 +202,7 @@ export const generateProfile = createServerFn({ method: 'POST' })
       )
     }
 
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: [

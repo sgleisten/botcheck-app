@@ -2,7 +2,11 @@ import { createServerFn } from '@tanstack/react-start'
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+let _anthropic: Anthropic | null = null
+function getAnthropic(): Anthropic {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  return _anthropic
+}
 
 const inputSchema = z.object({
   url: z.string().url().max(2048),
@@ -365,7 +369,7 @@ Return ONLY valid JSON, no other text:
 }`
 
     // 4. Call Claude via SDK
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 2500,
       messages: [{ role: 'user', content: prompt }],
