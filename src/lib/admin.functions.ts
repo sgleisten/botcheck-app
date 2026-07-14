@@ -1102,6 +1102,18 @@ export const getClientDetail = createServerFn({ method: 'GET' })
         dnsSetup: `${appUrl}/onboarding/dns-setup/${data.clientId}`,
         onboarding: `${appUrl}/onboarding/${data.clientId}`,
         clientReport: `${appUrl}/print/client/${data.clientId}`,
+        ...(client.custom_hostname
+          ? {
+              customSurface: {
+                hostname: client.custom_hostname as string,
+                active: client.custom_hostname_status === 'active',
+                llmsTxt: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/llms.txt`,
+                toolsJson: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/tools.json`,
+                indexJson: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/index.json`,
+                jsonld: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/jsonld`,
+              },
+            }
+          : {}),
       },
       jsonLdSnippet: `<script type="application/ld+json">\n${jsonLd}\n</script>`,
       indexJsonPreview: JSON.stringify(buildIndexJson(surfaceInput), null, 2),
@@ -1458,4 +1470,52 @@ export const deleteBrandVisibilityExport = createServerFn({ method: 'POST' })
     const { error } = await supabaseAdmin.from('brand_visibility_exports').delete().eq('id', data.id)
     if (error) throw new Error(error.message)
     return { ok: true }
+  })
+
+export const probeClientDeliverySurfaces = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { probeSurface } = await import('./surface-probe')
+
+    const { data: client, error: clientError } = await supabaseAdmin
+      .from('clients')
+      .select('id, domain, custom_hostname, custom_hostname_status')
+      .eq('id', data.clientId)
+      .single()
+
+    if (clientError || !client) throw new Error('Client not found')
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('status')
+      .eq('client_id', data.clientId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const domain = client.domain as string
+    const mainUrl = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`
+    const appUrl = appBaseUrl()
+    const customHostname = (client.custom_hostname as string | null)?.trim() || null
+    const profileLive = profile?.status === 'live'
+
+    const [mainSite, aiSubdomain, botcheckHosted] = await Promise.all([
+      probeSurface(mainUrl, { includeRobots: true }),
+      customHostname ? probeSurface(`https://${customHostname.replace(/^https?:\/\//i, '')}`) : Promise.resolve(null),
+      profileLive
+        ? probeSurface(`${appUrl.replace(/\/+$/, '')}/sites/${data.clientId}`)
+        : Promise.resolve(null),
+    ])
+
+    return {
+      probedAt: new Date().toISOString(),
+      mainSite,
+      aiSubdomain,
+      botcheckHosted,
+      aiSubdomainHostname: customHostname,
+      aiSubdomainStatus: (client.custom_hostname_status as string | null) ?? null,
+      profileLive,
+    }
   })

@@ -16,7 +16,9 @@ import {
   fetchBrandVisibilityCsv,
   getBrandVisibilityExportContent,
   deleteBrandVisibilityExport,
+  probeClientDeliverySurfaces,
 } from '@/lib/admin.functions'
+import type { SurfaceProbeResult } from '@/lib/surface-probe'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
 
@@ -377,11 +379,75 @@ function ClientWorkspace() {
 
               {data.profile.status === 'live' && (
                 <div className="text-xs font-mono text-teal/70 break-all space-y-1 border-t border-teal/10 pt-3">
-                  <p className="font-sans font-semibold text-teal/60">Live hosted surfaces:</p>
-                  <p>{data.urls.llmsTxt}</p>
-                  <p>{data.urls.toolsJson}</p>
-                  <p>{data.urls.indexJson}</p>
-                  <p>{data.urls.jsonld}</p>
+                  <p className="font-sans font-semibold text-teal/60">Live hosted surfaces (BotCheck):</p>
+                  <p>
+                    <a href={data.urls.llmsTxt} target="_blank" rel="noreferrer" className="underline">
+                      {data.urls.llmsTxt}
+                    </a>
+                  </p>
+                  <p>
+                    <a href={data.urls.toolsJson} target="_blank" rel="noreferrer" className="underline">
+                      {data.urls.toolsJson}
+                    </a>
+                  </p>
+                  <p>
+                    <a href={data.urls.indexJson} target="_blank" rel="noreferrer" className="underline">
+                      {data.urls.indexJson}
+                    </a>
+                  </p>
+                  <p>
+                    <a href={data.urls.jsonld} target="_blank" rel="noreferrer" className="underline">
+                      {data.urls.jsonld}
+                    </a>
+                  </p>
+                  {'customSurface' in data.urls && data.urls.customSurface && (
+                    <>
+                      <p className="font-sans font-semibold text-teal/60 pt-2">
+                        AI subdomain ({data.urls.customSurface.hostname}
+                        {data.urls.customSurface.active ? '' : ' — pending'}):
+                      </p>
+                      <p>
+                        <a
+                          href={data.urls.customSurface.llmsTxt}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                        >
+                          {data.urls.customSurface.llmsTxt}
+                        </a>
+                      </p>
+                      <p>
+                        <a
+                          href={data.urls.customSurface.toolsJson}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                        >
+                          {data.urls.customSurface.toolsJson}
+                        </a>
+                      </p>
+                      <p>
+                        <a
+                          href={data.urls.customSurface.indexJson}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                        >
+                          {data.urls.customSurface.indexJson}
+                        </a>
+                      </p>
+                      <p>
+                        <a
+                          href={data.urls.customSurface.jsonld}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                        >
+                          {data.urls.customSurface.jsonld}
+                        </a>
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -475,6 +541,17 @@ function ClientWorkspace() {
             <CopyButton text={data.urls.dnsSetup} label="Copy DNS setup link for client" />
           </div>
         </Section>
+
+        <DeliverySurfaceAudit
+          clientId={clientId}
+          domain={data.client.domain}
+          customHostname={data.client.customHostname}
+          customHostnameStatus={data.client.customHostnameStatus}
+          profileLive={data.profile?.status === 'live'}
+          hostingAccess={data.client.hostingAccess}
+          run={run}
+          busy={busy}
+        />
 
         {/* On-site (hosting access) */}
         {data.client.hostingAccess && data.profile && (
@@ -692,6 +769,204 @@ function ClientWorkspace() {
         </Section>
       </div>
     </div>
+  )
+}
+
+function DeliverySurfaceAudit({
+  clientId,
+  domain,
+  customHostname,
+  customHostnameStatus,
+  profileLive,
+  hostingAccess,
+  run,
+  busy,
+}: {
+  clientId: string
+  domain: string
+  customHostname: string | null
+  customHostnameStatus: string | null
+  profileLive: boolean
+  hostingAccess: boolean
+  run: (key: string, fn: () => Promise<void | string>) => Promise<void>
+  busy: string | null
+}) {
+  type AuditResult = Awaited<ReturnType<typeof probeClientDeliverySurfaces>>
+  const [audit, setAudit] = useState<AuditResult | null>(null)
+
+  async function runAudit() {
+    await run('audit', async () => {
+      const result = await probeClientDeliverySurfaces({ data: { clientId } })
+      setAudit(result)
+      return `Audit complete — probed ${result.aiSubdomain ? 3 : result.botcheckHosted ? 2 : 1} surface(s).`
+    })
+  }
+
+  const subdomainActive =
+    customHostname && customHostnameStatus === 'active' && audit?.aiSubdomain
+  const mainFilesMissing =
+    audit?.mainSite && audit.mainSite.filesLive < audit.mainSite.fileCount
+  const showCloudflareCallout =
+    subdomainActive && mainFilesMissing && audit.aiSubdomain!.filesLive === audit.aiSubdomain!.fileCount
+
+  return (
+    <Section
+      title="Delivery surface audit"
+      subtitle="Live probe of what AI crawlers can reach — separate from the ARS scan score."
+    >
+      <p className="text-xs text-teal/70">
+        The post-delivery ARS scan only measures the <strong>main site</strong> column. Cloudflare
+        subdomain delivery is verified here.
+      </p>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <Button type="button" disabled={busy === 'audit'} onClick={runAudit}>
+          {busy === 'audit' ? 'Probing…' : audit ? 'Refresh audit' : 'Run audit'}
+        </Button>
+        {audit && (
+          <span className="text-xs text-teal/50">Last run: {fmtDate(audit.probedAt)}</span>
+        )}
+      </div>
+
+      {audit && (
+        <div className="space-y-4">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <SurfaceSummaryCard
+              label="Main site"
+              probe={audit.mainSite}
+              subtitle={domain.replace(/^https?:\/\//i, '')}
+            />
+            {audit.aiSubdomain ? (
+              <SurfaceSummaryCard
+                label="AI subdomain"
+                probe={audit.aiSubdomain}
+                subtitle={audit.aiSubdomainHostname ?? customHostname ?? ''}
+                highlight={audit.aiSubdomain.filesLive === audit.aiSubdomain.fileCount}
+              />
+            ) : (
+              <div className="bg-cream border border-teal/15 rounded p-3 text-xs text-teal/60">
+                <p className="font-bold text-teal/70">AI subdomain</p>
+                <p className="mt-1">Not registered yet.</p>
+              </div>
+            )}
+            {audit.botcheckHosted ? (
+              <SurfaceSummaryCard label="BotCheck hosted" probe={audit.botcheckHosted} subtitle="botcheck.io/sites/…" />
+            ) : (
+              <div className="bg-cream border border-teal/15 rounded p-3 text-xs text-teal/60">
+                <p className="font-bold text-teal/70">BotCheck hosted</p>
+                <p className="mt-1">{profileLive ? 'Profile live' : 'Approve profile to enable.'}</p>
+              </div>
+            )}
+          </div>
+
+          {showCloudflareCallout && (
+            <div className="text-sm bg-green/10 border-2 border-green/40 p-3 rounded">
+              <strong>Cloudflare delivery complete</strong> — all files live on{' '}
+              {audit.aiSubdomainHostname}. Upload the same files to the root domain (
+              {domain.replace(/^https?:\/\//i, '')}) for a higher ARS scan score.
+              {hostingAccess && (
+                <span> See “On their website” below for the checklist.</span>
+              )}
+            </div>
+          )}
+
+          <div className="overflow-x-auto border border-teal/15 rounded">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-cream border-b border-teal/15 text-left">
+                  <th className="p-2 font-bold text-teal/70">Check</th>
+                  <th className="p-2 font-bold text-teal/70">Main site</th>
+                  {audit.aiSubdomain && <th className="p-2 font-bold text-teal/70">AI subdomain</th>}
+                  {audit.botcheckHosted && <th className="p-2 font-bold text-teal/70">BotCheck</th>}
+                </tr>
+              </thead>
+              <tbody>
+                <AuditRow label="llms.txt" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.llmsTxt} sub={audit.aiSubdomain?.llmsTxt} hosted={audit.botcheckHosted?.llmsTxt} />
+                <AuditRow label="tools.json" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.toolsJson} sub={audit.aiSubdomain?.toolsJson} hosted={audit.botcheckHosted?.toolsJson} />
+                <AuditRow label="index.json" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.indexJson} sub={audit.aiSubdomain?.indexJson} hosted={audit.botcheckHosted?.indexJson} />
+                <AuditRow label="jsonld" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.jsonld} sub={audit.aiSubdomain?.jsonld} hosted={audit.botcheckHosted?.jsonld} />
+                <AuditRow label="Content-Signal" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.contentSignal} sub={audit.aiSubdomain?.contentSignal} hosted={audit.botcheckHosted?.contentSignal} />
+                {audit.mainSite.robotsAllowsAi && (
+                  <AuditRow label="robots.txt (AI allowed)" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.robotsAllowsAi} />
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Section>
+  )
+}
+
+function SurfaceSummaryCard({
+  label,
+  probe,
+  subtitle,
+  highlight,
+}: {
+  label: string
+  probe: SurfaceProbeResult
+  subtitle: string
+  highlight?: boolean
+}) {
+  const complete = probe.filesLive === probe.fileCount
+  return (
+    <div
+      className={`border rounded p-3 text-xs ${
+        highlight || complete ? 'bg-green/10 border-green/40' : 'bg-cream border-teal/15'
+      }`}
+    >
+      <p className="font-bold text-teal">{label}</p>
+      <p className="text-teal/50 truncate mt-0.5">{subtitle}</p>
+      <p className={`text-lg font-black mt-2 ${complete ? 'text-green' : 'text-orange'}`}>
+        {probe.filesLive}/{probe.fileCount}
+      </p>
+      <p className="text-teal/60">{complete ? 'All files live' : 'Files missing'}</p>
+    </div>
+  )
+}
+
+function AuditRow({
+  label,
+  main,
+  sub,
+  hosted,
+  showSub,
+  showHosted,
+}: {
+  label: string
+  main: { ok: boolean; detail: string; url: string }
+  sub?: { ok: boolean; detail: string; url: string }
+  hosted?: { ok: boolean; detail: string; url: string }
+  showSub: boolean
+  showHosted: boolean
+}) {
+  return (
+    <tr className="border-b border-teal/10 last:border-0">
+      <td className="p-2 font-semibold text-teal/80 align-top">{label}</td>
+      <td className="p-2 align-top">
+        <AuditCell check={main} />
+      </td>
+      {showSub && (
+        <td className="p-2 align-top">{sub ? <AuditCell check={sub} /> : '—'}</td>
+      )}
+      {showHosted && (
+        <td className="p-2 align-top">{hosted ? <AuditCell check={hosted} /> : '—'}</td>
+      )}
+    </tr>
+  )
+}
+
+function AuditCell({ check }: { check: { ok: boolean; detail: string; url: string } }) {
+  return (
+    <span className="block">
+      <span className={check.ok ? 'text-green font-bold' : 'text-coral font-bold'}>
+        {check.ok ? '✓' : '✗'}
+      </span>{' '}
+      <a href={check.url} target="_blank" rel="noreferrer" className="underline text-teal/70">
+        {check.detail}
+      </a>
+    </span>
   )
 }
 

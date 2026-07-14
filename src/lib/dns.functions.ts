@@ -133,5 +133,17 @@ export const checkCustomHostnameStatus = createServerFn({ method: 'POST' })
       }
     }
 
+    if (justActivated && client.custom_hostname) {
+      try {
+        const { probeSurface } = await import('./surface-probe')
+        const sub = await probeSurface(`https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}`)
+        console.info(
+          `[dns] Surface audit on activation ${client.custom_hostname}: ${sub.filesLive}/${sub.fileCount} files live`,
+        )
+      } catch (err) {
+        console.error('[dns] surface probe on activation error:', err)
+      }
+    }
+
     return { status: result.status, error: result.error }
   })

@@ -284,8 +284,23 @@ function ClientReportPrint() {
           Cloudflare custom hostname
           {report.customHostname ? `: ${report.customHostname}` : ' (configured)'}
         </li>
+        {report.customHostname && (
+          <li style={{ fontSize: 12, listStyle: 'none', marginLeft: -20, color: '#2a5d6799' }}>
+            Live at{' '}
+            <a href={`https://${report.customHostname.replace(/^https?:\/\//i, '')}/llms.txt`}>
+              https://{report.customHostname.replace(/^https?:\/\//i, '')}/llms.txt
+            </a>
+          </li>
+        )}
         <li>Content-Signal headers + JSON-LD for AI crawlers</li>
-        {report.hostingAccess && <li>Files deployed on your website</li>}
+        {report.hostingAccess ? (
+          <li>Files deployed on your website (root domain)</li>
+        ) : (
+          <li style={{ fontSize: 12, color: '#2a5d6799' }}>
+            Main-site root files ({report.domain.replace(/^https?:\/\//i, '')}/llms.txt) are separate —
+            add when hosting access is available for a higher scan score.
+          </li>
+        )}
       </ul>
 
       <div
