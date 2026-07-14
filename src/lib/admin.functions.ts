@@ -1011,6 +1011,15 @@ export const getClientDetail = createServerFn({ method: 'GET' })
       .eq('client_id', data.clientId)
       .order('captured_at', { ascending: false })
 
+    const { data: brandSetting } = await supabaseAdmin
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'brand_visibility_url')
+      .maybeSingle()
+    const storedBrandUrl = ((brandSetting?.value as string | null) ?? '').trim()
+    const envBrandUrl = process.env.BRAND_VISIBILITY_URL?.trim() ?? ''
+    const configuredBrandUrl = storedBrandUrl || envBrandUrl
+
     const appUrl = appBaseUrl()
     const surfaceInput = {
       businessName: client.business_name as string | null,
@@ -1082,13 +1091,39 @@ export const getClientDetail = createServerFn({ method: 'GET' })
       cloudflareConfigured: Boolean(
         process.env.CLOUDFLARE_API_TOKEN?.trim() && process.env.CLOUDFLARE_ZONE_ID?.trim(),
       ),
-      // Your deployed ai-brand-visibility-template worker (set BRAND_VISIBILITY_URL).
-      // When set, the workspace embeds it inline; otherwise we link to the deploy flow.
-      brandToolUrl:
-        process.env.BRAND_VISIBILITY_URL?.trim() ||
+      // Deployed ai-brand-visibility-template worker URL. Set it from the workspace
+      // (stored in app_settings) or via BRAND_VISIBILITY_URL env. When set, the
+      // workspace embeds it inline; otherwise we show the deploy flow.
+      brandToolUrl: configuredBrandUrl,
+      brandToolConfigured: Boolean(configuredBrandUrl),
+      brandToolDeployUrl:
         'https://dash.cloudflare.com/d17c0aa58c9de18c589483788bee513a/workers-and-pages/create/deploy-to-workers?repository=https%3A%2F%2Fgithub.com%2Fcloudflare%2Ftemplates%2Ftree%2Fmain%2Fai-brand-visibility-template',
-      brandToolConfigured: Boolean(process.env.BRAND_VISIBILITY_URL?.trim()),
     }
+  })
+
+export const setBrandToolUrl = createServerFn({ method: 'POST' })
+  .validator((input: unknown) =>
+    z
+      .object({
+        url: z
+          .string()
+          .trim()
+          .max(500)
+          .refine((v) => v === '' || /^https?:\/\//i.test(v), 'Enter a valid https URL')
+          .transform((v) => v.replace(/\/+$/, '')),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { error } = await supabaseAdmin
+      .from('app_settings')
+      .upsert(
+        { key: 'brand_visibility_url', value: data.url || null, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      )
+    if (error) throw new Error(error.message)
+    return { ok: true, url: data.url }
   })
 
 export const generateBrandPrompts = createServerFn({ method: 'POST' })

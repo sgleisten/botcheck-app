@@ -11,6 +11,7 @@ import {
   deleteBrandVisibilityResult,
   saveReportSnapshot,
   deleteReportSnapshot,
+  setBrandToolUrl,
 } from '@/lib/admin.functions'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
@@ -133,6 +134,7 @@ function ClientWorkspace() {
   // Brand visibility
   const [prompts, setPrompts] = useState<string[]>([])
   const [brandPhase, setBrandPhase] = useState<'baseline' | 'post_delivery'>('baseline')
+  const [toolUrlInput, setToolUrlInput] = useState(data.brandToolUrl ?? '')
 
   async function run(key: string, fn: () => Promise<void | string>) {
     setBusy(key)
@@ -482,12 +484,47 @@ function ClientWorkspace() {
           title="Brand visibility across LLMs"
           subtitle="Whether AI assistants mention this business for relevant questions."
         >
+          {/* Tool URL setting — paste your deployed worker URL once; it embeds everywhere. */}
+          <div className="bg-cream border border-teal/15 rounded p-3 space-y-2">
+            <label className="block text-xs font-bold text-teal/70">
+              Your deployed brand-visibility tool URL
+            </label>
+            <div className="flex flex-wrap gap-2 items-center">
+              <input
+                value={toolUrlInput}
+                onChange={(e) => setToolUrlInput(e.target.value)}
+                placeholder="https://ai-brand-visibility-template.your-account.workers.dev"
+                className="input-field font-mono text-xs flex-1 min-w-[260px]"
+              />
+              <button
+                type="button"
+                disabled={busy === 'toolurl'}
+                onClick={() =>
+                  run('toolurl', async () => {
+                    await setBrandToolUrl({ data: { url: toolUrlInput.trim() } })
+                    return toolUrlInput.trim() ? 'Tool URL saved.' : 'Tool URL cleared.'
+                  })
+                }
+                className="text-xs bg-teal text-cream px-3 py-2 rounded font-semibold hover:opacity-90"
+              >
+                {busy === 'toolurl' ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            <p className="text-[11px] text-teal/50">
+              Don’t have it yet?{' '}
+              <a href={data.brandToolDeployUrl} target="_blank" rel="noreferrer" className="underline">
+                Deploy the ai-brand-visibility-template
+              </a>{' '}
+              (no API keys), then paste the resulting <code>*.workers.dev</code> URL here. Saved for all
+              clients.
+            </p>
+          </div>
+
           {data.brandToolConfigured ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-teal/70">
-                  Automated multi-model testing (GPT, Claude, Gemini, Llama, Mistral — no API keys),
-                  running on your Cloudflare deployment.
+                  Automated multi-model testing (GPT, Claude, Gemini, Llama, Mistral — no API keys).
                 </p>
                 <a
                   href={data.brandToolUrl}
@@ -501,7 +538,7 @@ function ClientWorkspace() {
               <iframe
                 src={data.brandToolUrl}
                 title="AI brand visibility"
-                className="w-full h-[600px] border-2 border-teal/20 rounded bg-white"
+                className="w-full h-[640px] border-2 border-teal/20 rounded bg-white"
               />
               <p className="text-[11px] text-teal/50">
                 If the panel is blank, your tool blocks embedding — use “Open in new tab”, then record
@@ -510,14 +547,8 @@ function ClientWorkspace() {
             </div>
           ) : (
             <p className="text-xs text-teal/70">
-              For automated multi-model testing (GPT, Claude, Gemini, Llama, Mistral — no API keys),{' '}
-              <a href={data.brandToolUrl} target="_blank" rel="noreferrer" className="underline">
-                deploy the ai-brand-visibility-template
-              </a>
-              . After deploying, set <code className="bg-teal/5 px-1">BRAND_VISIBILITY_URL</code> to your
-              worker URL (e.g. <code className="bg-teal/5 px-1">https://ai-brand-visibility-template.your-account.workers.dev</code>)
-              and it will appear embedded here. Run the prompts below, then record which models mentioned
-              the business.
+              Save your tool URL above to embed it here. Then run the prompts below and record which
+              models mentioned the business.
             </p>
           )}
 
