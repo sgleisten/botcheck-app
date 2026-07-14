@@ -1011,6 +1011,14 @@ export const getClientDetail = createServerFn({ method: 'GET' })
       .eq('client_id', data.clientId)
       .order('captured_at', { ascending: false })
 
+    const { data: brandExports } = await supabaseAdmin
+      .from('brand_visibility_exports')
+      .select(
+        'id, phase, filename, row_count, mention_count, source, cloudflare_result_id, label, created_at',
+      )
+      .eq('client_id', data.clientId)
+      .order('created_at', { ascending: false })
+
     const { data: brandSetting } = await supabaseAdmin
       .from('app_settings')
       .select('value')
@@ -1067,6 +1075,17 @@ export const getClientDetail = createServerFn({ method: 'GET' })
         post: postBrand,
         baselineSummary: summarizeBrandResults(baselineBrand),
         postSummary: summarizeBrandResults(postBrand),
+        exports: (brandExports ?? []) as Array<{
+          id: string
+          phase: string
+          filename: string
+          row_count: number
+          mention_count: number
+          source: string
+          cloudflare_result_id: string | null
+          label: string | null
+          created_at: string
+        }>,
       },
       snapshots: (snapshots ?? []) as Array<{
         id: string
@@ -1273,6 +1292,170 @@ export const deleteReportSnapshot = createServerFn({ method: 'POST' })
       .from('client_report_snapshots')
       .delete()
       .eq('id', data.id)
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
+
+async function getConfiguredBrandToolUrl(): Promise<string> {
+  const { data: brandSetting } = await supabaseAdmin
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'brand_visibility_url')
+    .maybeSingle()
+  const stored = ((brandSetting?.value as string | null) ?? '').trim()
+  const env = process.env.BRAND_VISIBILITY_URL?.trim() ?? ''
+  return stored || env
+}
+
+async function storeBrandVisibilityExport(input: {
+  clientId: string
+  phase: 'baseline' | 'post_delivery'
+  filename: string
+  csvContent: string
+  source: 'upload' | 'cloudflare_fetch'
+  cloudflareResultId?: string | null
+  label?: string | null
+  importResults: boolean
+}): Promise<{ exportId: string; rowCount: number; mentionCount: number; importedCount: number }> {
+  const { parseBrandVisibilityCsv, summarizeBrandCsvRows } = await import('./brand-csv')
+  const rows = parseBrandVisibilityCsv(input.csvContent)
+  if (rows.length === 0) throw new Error('CSV has no data rows.')
+
+  const summary = summarizeBrandCsvRows(rows)
+
+  const { data: exportRow, error: exportError } = await supabaseAdmin
+    .from('brand_visibility_exports')
+    .insert({
+      client_id: input.clientId,
+      phase: input.phase,
+      filename: input.filename,
+      csv_content: input.csvContent,
+      row_count: summary.rowCount,
+      mention_count: summary.mentionCount,
+      source: input.source,
+      cloudflare_result_id: input.cloudflareResultId ?? null,
+      label: input.label?.trim() || null,
+    })
+    .select('id')
+    .single()
+
+  if (exportError || !exportRow) throw new Error(exportError?.message ?? 'Failed to save CSV export')
+
+  let importedCount = 0
+  if (input.importResults) {
+    const inserts = rows.map((r) => ({
+      client_id: input.clientId,
+      phase: input.phase,
+      prompt: r.prompt,
+      model: r.provider ? `${r.model} (${r.provider})` : r.model,
+      mentioned: r.mentioned,
+      response_excerpt: r.excerpt ?? r.response?.slice(0, 4000) ?? null,
+      notes: input.label?.trim() ? `Imported from ${input.filename}` : `Imported from ${input.filename}`,
+    }))
+    const { error: importError } = await supabaseAdmin.from('brand_visibility_results').insert(inserts)
+    if (importError) throw new Error(importError.message)
+    importedCount = inserts.length
+  }
+
+  return {
+    exportId: exportRow.id as string,
+    rowCount: summary.rowCount,
+    mentionCount: summary.mentionCount,
+    importedCount,
+  }
+}
+
+const brandExportPhaseSchema = z.enum(['baseline', 'post_delivery'])
+
+export const uploadBrandVisibilityCsv = createServerFn({ method: 'POST' })
+  .validator((input: unknown) =>
+    z
+      .object({
+        clientId: z.string().uuid(),
+        phase: brandExportPhaseSchema,
+        filename: z.string().min(1).max(255),
+        csvContent: z.string().min(1).max(2_000_000),
+        label: z.string().max(200).optional(),
+        importResults: z.boolean().default(true),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    return storeBrandVisibilityExport({
+      clientId: data.clientId,
+      phase: data.phase,
+      filename: data.filename,
+      csvContent: data.csvContent,
+      source: 'upload',
+      label: data.label,
+      importResults: data.importResults,
+    })
+  })
+
+export const fetchBrandVisibilityCsv = createServerFn({ method: 'POST' })
+  .validator((input: unknown) =>
+    z
+      .object({
+        clientId: z.string().uuid(),
+        phase: brandExportPhaseSchema,
+        resultId: z.string().min(8).max(120),
+        label: z.string().max(200).optional(),
+        importResults: z.boolean().default(true),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const toolUrl = await getConfiguredBrandToolUrl()
+    if (!toolUrl) {
+      throw new Error('Brand visibility tool URL is not configured. Save it above first.')
+    }
+
+    const resultId = data.resultId.trim()
+    const csvUrl = `${toolUrl.replace(/\/+$/, '')}/api/results/${encodeURIComponent(resultId)}/csv`
+    const res = await fetch(csvUrl)
+    if (!res.ok) {
+      throw new Error(`Could not fetch CSV from tool (${res.status}). Check the result ID and tool URL.`)
+    }
+
+    const csvContent = await res.text()
+    const filename = `visibility-${resultId.slice(0, 8)}.csv`
+
+    return storeBrandVisibilityExport({
+      clientId: data.clientId,
+      phase: data.phase,
+      filename,
+      csvContent,
+      source: 'cloudflare_fetch',
+      cloudflareResultId: resultId,
+      label: data.label,
+      importResults: data.importResults,
+    })
+  })
+
+export const getBrandVisibilityExportContent = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => z.object({ exportId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { data: row, error } = await supabaseAdmin
+      .from('brand_visibility_exports')
+      .select('filename, csv_content')
+      .eq('id', data.exportId)
+      .single()
+    if (error || !row) throw new Error('Export not found')
+    return {
+      filename: row.filename as string,
+      csvContent: row.csv_content as string,
+    }
+  })
+
+export const deleteBrandVisibilityExport = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { error } = await supabaseAdmin.from('brand_visibility_exports').delete().eq('id', data.id)
     if (error) throw new Error(error.message)
     return { ok: true }
   })

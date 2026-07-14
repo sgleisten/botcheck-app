@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   getClientDetail,
   updateProfile,
@@ -12,6 +12,10 @@ import {
   saveReportSnapshot,
   deleteReportSnapshot,
   setBrandToolUrl,
+  uploadBrandVisibilityCsv,
+  fetchBrandVisibilityCsv,
+  getBrandVisibilityExportContent,
+  deleteBrandVisibilityExport,
 } from '@/lib/admin.functions'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
@@ -27,6 +31,16 @@ const BRAND_MODELS = ['ChatGPT', 'Claude', 'Gemini', 'Perplexity', 'Llama', 'Mis
 
 function ensureHttps(domain: string) {
   return /^https?:\/\//i.test(domain) ? domain : `https://${domain}`
+}
+
+function cleanDomain(domain: string) {
+  return domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim()
+}
+
+function brandToolEmbedUrl(baseUrl: string, domain: string) {
+  const root = baseUrl.replace(/\/+$/, '')
+  const site = encodeURIComponent(cleanDomain(domain))
+  return `${root}/?site=${site}`
 }
 
 function fmtDate(iso: string | null) {
@@ -521,30 +535,11 @@ function ClientWorkspace() {
           </div>
 
           {data.brandToolConfigured ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-teal/70">
-                  Automated multi-model testing (GPT, Claude, Gemini, Llama, Mistral — no API keys).
-                </p>
-                <a
-                  href={data.brandToolUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs border border-teal/30 px-2 py-1 rounded hover:bg-teal/5 shrink-0"
-                >
-                  Open in new tab →
-                </a>
-              </div>
-              <iframe
-                src={data.brandToolUrl}
-                title="AI brand visibility"
-                className="w-full h-[640px] border-2 border-teal/20 rounded bg-white"
-              />
-              <p className="text-[11px] text-teal/50">
-                If the panel is blank, your tool blocks embedding — use “Open in new tab”, then record
-                results below.
-              </p>
-            </div>
+            <BrandToolPanel
+              toolUrl={data.brandToolUrl}
+              embedUrl={brandToolEmbedUrl(data.brandToolUrl, data.client.domain)}
+              domain={data.client.domain}
+            />
           ) : (
             <p className="text-xs text-teal/70">
               Save your tool URL above to embed it here. Then run the prompts below and record which
@@ -593,6 +588,15 @@ function ClientWorkspace() {
               ))}
             </div>
           )}
+
+          <BrandCsvSection
+            clientId={clientId}
+            exports={data.brand.exports}
+            phase={brandPhase}
+            onPhaseChange={setBrandPhase}
+            run={run}
+            busy={busy}
+          />
 
           <BrandResultsTable
             title={`Baseline results (${data.brand.baselineSummary.mentionCount}/${data.brand.baselineSummary.modelCount} models mentioned)`}
@@ -687,6 +691,282 @@ function ClientWorkspace() {
           )}
         </Section>
       </div>
+    </div>
+  )
+}
+
+function BrandToolPanel({
+  toolUrl,
+  embedUrl,
+  domain,
+}: {
+  toolUrl: string
+  embedUrl: string
+  domain: string
+}) {
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [fullscreen])
+
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-xs text-teal/70">
+        Automated multi-model testing for <strong>{cleanDomain(domain)}</strong> (GPT, Claude, Gemini,
+        Llama, Mistral — no API keys).
+      </p>
+      <div className="flex flex-wrap gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => setFullscreen(true)}
+          className="text-xs border border-teal/30 px-2 py-1 rounded hover:bg-teal/5"
+        >
+          Full screen
+        </button>
+        <a
+          href={embedUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs border border-teal/30 px-2 py-1 rounded hover:bg-teal/5"
+        >
+          Open in new tab →
+        </a>
+      </div>
+    </div>
+  )
+
+  const frame = (
+    <iframe
+      src={embedUrl}
+      title="AI brand visibility"
+      className="w-full border-2 border-teal/20 rounded bg-white min-h-[85vh]"
+      style={{ height: '85vh' }}
+    />
+  )
+
+  return (
+    <div className="space-y-2">
+      {toolbar}
+      {frame}
+      <p className="text-[11px] text-teal/50">
+        Use <strong>Full screen</strong> for easier scrolling. After a test completes, download the CSV
+        from the tool and upload it below to save it on this client profile.
+      </p>
+
+      {fullscreen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-cream">
+          <div className="flex items-center justify-between gap-3 border-b border-teal/20 bg-white px-4 py-3">
+            <div>
+              <p className="text-sm font-bold text-teal">Brand visibility tool</p>
+              <p className="text-xs text-teal/60">{cleanDomain(domain)}</p>
+            </div>
+            <div className="flex gap-2">
+              <a
+                href={toolUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs border border-teal/30 px-2 py-1 rounded hover:bg-teal/5"
+              >
+                Open tool home →
+              </a>
+              <button
+                type="button"
+                onClick={() => setFullscreen(false)}
+                className="text-xs bg-teal text-cream px-3 py-1 rounded font-semibold hover:opacity-90"
+              >
+                Close (Esc)
+              </button>
+            </div>
+          </div>
+          <iframe
+            src={embedUrl}
+            title="AI brand visibility full screen"
+            className="flex-1 w-full bg-white"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+type BrandExportRow = Detail['brand']['exports'][number]
+
+function BrandCsvSection({
+  clientId,
+  exports,
+  phase,
+  onPhaseChange,
+  run,
+  busy,
+}: {
+  clientId: string
+  exports: BrandExportRow[]
+  phase: 'baseline' | 'post_delivery'
+  onPhaseChange: (phase: 'baseline' | 'post_delivery') => void
+  run: (key: string, fn: () => Promise<void | string>) => Promise<void>
+  busy: string | null
+}) {
+  const [resultId, setResultId] = useState('')
+  const [label, setLabel] = useState('')
+  const csvBusy = busy?.startsWith('csv') ?? false
+
+  async function downloadExport(exportId: string) {
+    const { filename, csvContent } = await getBrandVisibilityExportContent({ data: { exportId } })
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="border-t border-teal/10 pt-4 space-y-3">
+      <div>
+        <p className="text-xs font-bold text-teal/70 uppercase">Saved CSV reports</p>
+        <p className="text-[11px] text-teal/50 mt-1">
+          Download the CSV from the Cloudflare tool after a test, then upload it here. Rows are imported
+          into the results tables below.
+        </p>
+      </div>
+
+      <div className="bg-cream border border-teal/15 rounded p-3 space-y-3">
+        <div className="flex flex-wrap gap-2 items-center">
+          <label className="text-xs font-bold text-teal/70">Save as</label>
+          <select
+            value={phase}
+            onChange={(e) => onPhaseChange(e.target.value as 'baseline' | 'post_delivery')}
+            className="input-field text-sm"
+          >
+            <option value="baseline">Baseline</option>
+            <option value="post_delivery">Post-delivery</option>
+          </select>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Optional label (e.g. March baseline)"
+            className="input-field text-xs flex-1 min-w-[180px]"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2 items-center">
+          <label className="text-xs font-bold text-teal/70 shrink-0">Upload CSV</label>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            disabled={csvBusy}
+            className="text-xs"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              const csvContent = await file.text()
+              await run('csv-upload', async () => {
+                const r = await uploadBrandVisibilityCsv({
+                  data: {
+                    clientId,
+                    phase,
+                    filename: file.name,
+                    csvContent,
+                    label: label || undefined,
+                    importResults: true,
+                  },
+                })
+                return `Saved ${file.name} (${r.rowCount} rows, ${r.mentionCount} models mentioned, ${r.importedCount} imported).`
+              })
+              e.target.value = ''
+            }}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2 items-center">
+          <label className="text-xs font-bold text-teal/70 shrink-0">Or fetch by result ID</label>
+          <input
+            value={resultId}
+            onChange={(e) => setResultId(e.target.value)}
+            placeholder="Paste test/result ID from Cloudflare tool URL"
+            className="input-field font-mono text-xs flex-1 min-w-[200px]"
+          />
+          <button
+            type="button"
+            disabled={csvBusy || !resultId.trim()}
+            onClick={() =>
+              run('csv-fetch', async () => {
+                const r = await fetchBrandVisibilityCsv({
+                  data: {
+                    clientId,
+                    phase,
+                    resultId: resultId.trim(),
+                    label: label || undefined,
+                    importResults: true,
+                  },
+                })
+                setResultId('')
+                return `Fetched and saved CSV (${r.rowCount} rows, ${r.mentionCount} models mentioned, ${r.importedCount} imported).`
+              })
+            }
+            className="text-xs border border-teal/30 px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-40"
+          >
+            Fetch from tool
+          </button>
+        </div>
+      </div>
+
+      {exports.length > 0 ? (
+        <ul className="divide-y divide-teal/10 border border-teal/15 rounded">
+          {exports.map((ex) => (
+            <li key={ex.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+              <span className="min-w-0">
+                <span className="uppercase text-xs font-bold text-teal/60">
+                  {ex.phase === 'baseline' ? 'Baseline' : 'Post'}
+                </span>{' '}
+                · {ex.filename} · {ex.mention_count} models mentioned · {ex.row_count} rows ·{' '}
+                {fmtDate(ex.created_at)}
+                {ex.label ? ` · ${ex.label}` : ''}
+                {ex.source === 'cloudflare_fetch' && ex.cloudflare_result_id ? (
+                  <span className="block text-[10px] text-teal/40 font-mono truncate">
+                    ID: {ex.cloudflare_result_id}
+                  </span>
+                ) : null}
+              </span>
+              <span className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => downloadExport(ex.id)}
+                  className="text-xs border border-teal/30 px-2 py-1 rounded hover:bg-teal/5"
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    run('csv-del', async () => {
+                      await deleteBrandVisibilityExport({ data: { id: ex.id } })
+                      return 'Export deleted.'
+                    })
+                  }
+                  className="text-xs text-coral hover:underline"
+                >
+                  Delete
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-teal/60">No saved CSV reports yet.</p>
+      )}
     </div>
   )
 }
