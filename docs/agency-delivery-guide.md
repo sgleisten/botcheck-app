@@ -320,7 +320,9 @@ npx wrangler queues create brand-visibility-jobs
 npm run deploy
 ```
 
-Then, per client: add their domain, paste the prompts BotCheck generated, run, and copy the per-model results back into the workspace. No provider API keys are needed — it uses Cloudflare AI Gateway.
+Then set `BRAND_VISIBILITY_URL` (in Vercel + local `.env`) to your deployed worker URL (e.g. `https://ai-brand-visibility-template.<account>.workers.dev`). The client workspace will **embed the tool inline** instead of linking to GitHub/the deploy flow.
+
+Per client: add their domain, paste the prompts BotCheck generated, run, and copy the per-model results back into the workspace. No provider API keys are needed — it uses Cloudflare AI Gateway.
 
 > The other template, `agent-visibility-template`, generates `llms.txt`/`index.json`/`jsonld`. **You do not need it** — BotCheck already produces and serves these (see §2). It just confirms BotCheck follows Cloudflare's conventions.
 

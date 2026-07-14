@@ -5,7 +5,7 @@ import {
   updateProfile,
   approveProfile,
   runPostDeliveryScan,
-  rerunScan,
+  runBaselineScan,
   generateBrandPrompts,
   recordBrandVisibilityResult,
   deleteBrandVisibilityResult,
@@ -77,14 +77,38 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
-function ScoreChip({ label, value }: { label: string; value: number | null }) {
+function ScoreChip({
+  label,
+  value,
+  href,
+}: {
+  label: string
+  value: number | null
+  href?: string | null
+}) {
   const color =
     value == null ? 'text-teal/40' : value >= 70 ? 'text-green' : value >= 40 ? 'text-orange' : 'text-coral'
-  return (
-    <div className="text-center px-4 py-3 bg-cream border border-teal/15 rounded-lg">
+  const inner = (
+    <>
       <div className="text-[10px] font-bold uppercase tracking-wide text-teal/60">{label}</div>
       <div className={`text-3xl font-black ${color}`}>{value ?? '—'}</div>
-    </div>
+      {href && value != null && <div className="text-[10px] text-teal/50 mt-0.5">view full scan →</div>}
+    </>
+  )
+  if (href && value != null) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="block text-center px-4 py-3 bg-cream border border-teal/15 rounded-lg hover:border-teal/40 hover:bg-teal/5 transition"
+      >
+        {inner}
+      </a>
+    )
+  }
+  return (
+    <div className="text-center px-4 py-3 bg-cream border border-teal/15 rounded-lg">{inner}</div>
   )
 }
 
@@ -171,8 +195,16 @@ function ClientWorkspace() {
         {/* Scores */}
         <Section title="Agent Readiness Score" subtitle="Measured before and after your work.">
           <div className="grid grid-cols-3 gap-3">
-            <ScoreChip label="Baseline" value={data.scans.baseline?.score ?? null} />
-            <ScoreChip label="Post-delivery" value={data.scans.post?.score ?? null} />
+            <ScoreChip
+              label="Baseline"
+              value={data.scans.baseline?.score ?? null}
+              href={data.scans.baseline ? `/report/${data.scans.baseline.id}` : null}
+            />
+            <ScoreChip
+              label="Post-delivery"
+              value={data.scans.post?.score ?? null}
+              href={data.scans.post ? `/report/${data.scans.post.id}` : null}
+            />
             <ScoreChip
               label="Change"
               value={
@@ -188,12 +220,12 @@ function ClientWorkspace() {
               disabled={busy === 'rescan'}
               onClick={() =>
                 run('rescan', async () => {
-                  await rerunScan({ data: { url: ensureHttps(data.client.domain), clientId } })
-                  return 'Baseline re-scan complete.'
+                  const r = await runBaselineScan({ data: { clientId } })
+                  return `Baseline scan saved — ${r.arsScore}/100`
                 })
               }
             >
-              {busy === 'rescan' ? 'Scanning…' : 'Re-run baseline scan'}
+              {busy === 'rescan' ? 'Scanning…' : 'Run baseline scan'}
             </Button>
             <Button
               type="button"
@@ -450,14 +482,44 @@ function ClientWorkspace() {
           title="Brand visibility across LLMs"
           subtitle="Whether AI assistants mention this business for relevant questions."
         >
-          <p className="text-xs text-teal/70">
-            For automated multi-model testing (GPT, Claude, Gemini, Llama, Mistral — no API keys), deploy
-            Cloudflare’s{' '}
-            <a href={data.brandTemplateUrl} target="_blank" rel="noreferrer" className="underline">
-              ai-brand-visibility-template
-            </a>
-            , run the prompts below there, then record which models mentioned the business here.
-          </p>
+          {data.brandToolConfigured ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-teal/70">
+                  Automated multi-model testing (GPT, Claude, Gemini, Llama, Mistral — no API keys),
+                  running on your Cloudflare deployment.
+                </p>
+                <a
+                  href={data.brandToolUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs border border-teal/30 px-2 py-1 rounded hover:bg-teal/5 shrink-0"
+                >
+                  Open in new tab →
+                </a>
+              </div>
+              <iframe
+                src={data.brandToolUrl}
+                title="AI brand visibility"
+                className="w-full h-[600px] border-2 border-teal/20 rounded bg-white"
+              />
+              <p className="text-[11px] text-teal/50">
+                If the panel is blank, your tool blocks embedding — use “Open in new tab”, then record
+                results below.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-teal/70">
+              For automated multi-model testing (GPT, Claude, Gemini, Llama, Mistral — no API keys),{' '}
+              <a href={data.brandToolUrl} target="_blank" rel="noreferrer" className="underline">
+                deploy the ai-brand-visibility-template
+              </a>
+              . After deploying, set <code className="bg-teal/5 px-1">BRAND_VISIBILITY_URL</code> to your
+              worker URL (e.g. <code className="bg-teal/5 px-1">https://ai-brand-visibility-template.your-account.workers.dev</code>)
+              and it will appear embedded here. Run the prompts below, then record which models mentioned
+              the business.
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-2 items-center">
             <Button

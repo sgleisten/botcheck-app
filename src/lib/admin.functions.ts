@@ -727,6 +727,37 @@ export const runPostDeliveryScan = createServerFn({ method: 'POST' })
     return { scanId: result.id, arsScore: result.ars_score }
   })
 
+export const runBaselineScan = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .select('id, domain')
+      .eq('id', data.clientId)
+      .single()
+
+    if (error || !client) throw new Error('Client not found')
+
+    const { performScan } = await import('./scan.functions')
+    const url = /^https?:\/\//i.test(client.domain) ? client.domain : `https://${client.domain}`
+    const result = await performScan(url, client.id)
+
+    const { error: updateError } = await supabaseAdmin
+      .from('clients')
+      .update({
+        baseline_scan_id: result.id,
+        scan_id: result.id,
+        last_scanned_at: new Date().toISOString(),
+      })
+      .eq('id', data.clientId)
+
+    if (updateError) throw new Error(updateError.message)
+
+    return { scanId: result.id, arsScore: result.ars_score }
+  })
+
 const brandCheckSchema = z.object({
   clientId: z.string().uuid(),
   checkType: z.enum(['baseline', 'post_delivery']),
@@ -1051,7 +1082,12 @@ export const getClientDetail = createServerFn({ method: 'GET' })
       cloudflareConfigured: Boolean(
         process.env.CLOUDFLARE_API_TOKEN?.trim() && process.env.CLOUDFLARE_ZONE_ID?.trim(),
       ),
-      brandTemplateUrl: 'https://github.com/cloudflare/templates/tree/main/ai-brand-visibility-template',
+      // Your deployed ai-brand-visibility-template worker (set BRAND_VISIBILITY_URL).
+      // When set, the workspace embeds it inline; otherwise we link to the deploy flow.
+      brandToolUrl:
+        process.env.BRAND_VISIBILITY_URL?.trim() ||
+        'https://dash.cloudflare.com/d17c0aa58c9de18c589483788bee513a/workers-and-pages/create/deploy-to-workers?repository=https%3A%2F%2Fgithub.com%2Fcloudflare%2Ftemplates%2Ftree%2Fmain%2Fai-brand-visibility-template',
+      brandToolConfigured: Boolean(process.env.BRAND_VISIBILITY_URL?.trim()),
     }
   })
 

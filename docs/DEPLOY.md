@@ -43,6 +43,7 @@ In Vercel → your project → **Settings** → **Environment Variables**, add e
 | `CLOUDFLARE_API_TOKEN` | Cloudflare for SaaS — Custom Hostnames Edit + Worker deploy. **Required on Vercel** or "Register hostname" fails with "CLOUDFLARE_API_TOKEN is not configured". |
 | `CLOUDFLARE_ZONE_ID` | Zone ID for `botcheck.io`. **Required on Vercel** — the same value is in local `.env`; if hostname registration errors with "CLOUDFLARE_ZONE_ID is not configured", it's missing in Vercel Production. |
 | `CLOUDFLARE_FALLBACK_ORIGIN` | Optional — CNAME target clients point at; default `fallback.botcheck.io` |
+| `BRAND_VISIBILITY_URL` | Optional — URL of your deployed `ai-brand-visibility-template` worker (e.g. `https://ai-brand-visibility-template.<account>.workers.dev`). When set, the client workspace embeds it inline instead of linking to the deploy flow. |
 
 After adding or changing env vars, go to **Deployments** → ⋮ on the latest deploy → **Redeploy**.
 
