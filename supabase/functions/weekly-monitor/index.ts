@@ -9,7 +9,7 @@ const FIRECRAWL_KEY = Deno.env.get('FIRECRAWL_API_KEY')
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY')
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY')
 const ADMIN_EMAIL = Deno.env.get('ADMIN_EMAIL')
-const APP_URL = Deno.env.get('APP_URL') ?? 'https://app.botcheck.io'
+const APP_URL = Deno.env.get('APP_URL') ?? 'https://www.botcheck.io'
 
 async function scrapeUrl(url: string): Promise<string> {
   if (!FIRECRAWL_KEY) throw new Error('FIRECRAWL_API_KEY not set')

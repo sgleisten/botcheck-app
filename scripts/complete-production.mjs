@@ -9,7 +9,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, existsSync } from 'fs'
 
-const PRODUCTION_URL = 'https://app.botcheck.io'
+const PRODUCTION_URL = 'https://www.botcheck.io'
 const VERCEL_URL = 'https://botcheck-app.vercel.app'
 const WEBHOOK_PATH = '/api/webhooks/stripe'
 const STRIPE_EVENTS = [

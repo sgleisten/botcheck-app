@@ -6,7 +6,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, existsSync } from 'fs'
 
-const BASE = process.env.APP_URL ?? 'https://botcheck-app.vercel.app'
+const BASE = process.env.APP_URL ?? 'https://www.botcheck.io'
 const TEST_CLIENT = '098895ea-00e5-4b23-8100-2432a0286626'
 const TEST_SCAN = 'f6c0d54e-8be8-4cc1-95a7-0a2d233d32dc'
 
@@ -71,18 +71,12 @@ await check('Stripe webhook rejects unsigned', `${BASE}/api/webhooks/stripe`, {
 await check('Admin login page', `${BASE}/admin/login`)
 await check('Onboarding status', `${BASE}/onboarding/status`)
 
-console.log('\nCustom domain')
-const dnsRes = await fetch('https://dns.google/resolve?name=app.botcheck.io&type=A').catch(() => null)
-if (dnsRes?.ok) {
-  const dns = await dnsRes.json()
-  if ((dns.Answer ?? []).length > 0) {
-    pass('app.botcheck.io DNS configured')
-    await check('app.botcheck.io homepage', 'https://app.botcheck.io/')
-  } else {
-    fail('app.botcheck.io DNS — add A record: app → 76.76.21.21 in Cloudflare')
-  }
+console.log('\nLegacy app subdomain')
+const appRes = await fetch('https://app.botcheck.io/', { redirect: 'manual' }).catch(() => null)
+if (appRes && (appRes.status === 301 || appRes.status === 308 || appRes.status === 200)) {
+  pass(`app.botcheck.io responds (${appRes.status})`)
 } else {
-  fail('Could not check app.botcheck.io DNS')
+  fail(`app.botcheck.io — expected redirect or 200, got ${appRes?.status ?? 'no response'}`)
 }
 
 console.log('\nDatabase')

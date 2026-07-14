@@ -2,7 +2,7 @@
 
 ## What this is
 
-https://app.botcheck.io — SaaS that manages AI presence files (llms.txt, tools.json) for small businesses. Hosted on Supabase, deployed to Vercel via Nitro.
+https://www.botcheck.io — SaaS that manages AI presence files (llms.txt, tools.json) for small businesses. Hosted on Supabase, deployed to Vercel via Nitro.
 
 ## Stack
 
@@ -53,7 +53,7 @@ https://github.com/sgleisten/botcheck-app
 - Client UUID: `098895ea-00e5-4b23-8100-2432a0286626`
 - Domain: `heybodhi.ai`
 - Contact: `sam@aieducators.ai`
-- Onboarding URL: `https://app.botcheck.io/onboarding/098895ea-00e5-4b23-8100-2432a0286626`
+- Onboarding URL: `https://www.botcheck.io/onboarding/098895ea-00e5-4b23-8100-2432a0286626`
 - Note: `f730a399-341a-45a2-87b6-d03e7188504c` is the auth user id, NOT the client id
 
 ## Admin
@@ -97,7 +97,7 @@ https://github.com/sgleisten/botcheck-app
 | `STRIPE_PRICE_ID_STARTER` | optional | Falls back to inline $299/mo price |
 | `RESEND_API_KEY` | yes (prod) | Skips send if missing |
 | `ADMIN_EMAIL` | yes (prod) | `sam@aieducators.ai` |
-| `APP_URL` | yes (prod) | `https://app.botcheck.io` |
+| `APP_URL` | yes (prod) | `https://www.botcheck.io` |
 | `EMAIL_FROM` | optional | Default `BotCheck <notifications@botcheck.io>` |
 
 ### Supabase edge functions (weekly-monitor)
@@ -108,12 +108,12 @@ Cron: `0 11 * * 1` (Monday 11:00 UTC) with `Authorization: Bearer {CRON_SECRET}`
 
 ## Production checklist
 
-1. DNS: `app.botcheck.io` → Vercel
+1. DNS: `www.botcheck.io` → Vercel; `app.botcheck.io` redirects to www (Vercel + Worker pass-through)
 2. Vercel env vars set (see above) → redeploy
-3. Stripe webhook: `https://app.botcheck.io/api/webhooks/stripe`
+3. Stripe webhook: `https://www.botcheck.io/api/webhooks/stripe`
 4. Deploy edge functions: `serve-profile`, `weekly-monitor`
 5. Set Supabase secrets + schedule weekly-monitor cron
-6. Smoke test: `APP_URL=https://app.botcheck.io node scripts/verify-funnel.mjs`
+6. Smoke test: `APP_URL=https://www.botcheck.io node scripts/verify-funnel.mjs`
 
 ## Local dev notes
 

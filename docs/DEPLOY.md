@@ -58,6 +58,26 @@ This is the same idea as Vercel, but for your laptop:
 
 The app reads this when someone finishes onboarding — you get an email pointing you to `/admin` to approve the profile.
 
+### Admin login & password reset
+
+Admin sign-in uses **Supabase Auth** (email + password). The password is **not** in `.env` or this repo — only `ADMIN_USER_ID` (the Supabase auth UUID) and optionally `ADMIN_EMAIL` (for alerts) are configured here.
+
+**Sign in:** `https://botcheck.io/admin/login` with the email on the Supabase user whose id matches `ADMIN_USER_ID` (typically the same address as `ADMIN_EMAIL`, e.g. `sam@aieducators.ai`).
+
+**Forgot password (in app):** On `/admin/login`, enter your admin email and click **Forgot password? Send reset link**. You must configure Supabase redirect URLs first:
+
+1. Supabase Dashboard → **Authentication** → **URL Configuration**
+2. **Site URL:** `https://botcheck.io`
+3. **Redirect URLs:** add `https://botcheck.io/admin/update-password` (and `http://localhost:3000/admin/update-password` for local dev)
+
+**Emergency reset (local script):** With service role in `.env`:
+
+```bash
+node scripts/reset-admin-password.mjs 'YourNewSecurePassword123'
+```
+
+**Manual reset (Supabase dashboard):** Authentication → Users → open the user matching `ADMIN_USER_ID` → **Send password recovery** or set a new password directly.
+
 ## 3. Stripe webhook (production)
 
 1. Stripe Dashboard → Developers → Webhooks → Add endpoint
@@ -106,7 +126,7 @@ Point the apex domain at this Vercel project:
 2. At **Cloudflare** (registrar for `botcheck.io`):
    - Apex `botcheck.io`: **A record** → `76.76.21.21` (Vercel), or switch nameservers to `ns1/ns2.vercel-dns.com`.
    - `www`: **CNAME** → `cname.vercel-dns.com` (Vercel will set the `www` ↔ apex redirect).
-3. (Optional) Keep **`app.botcheck.io`** as a **redirect** to `https://botcheck.io` so any old links/emails still resolve.
+3. (Optional) Keep **`app.botcheck.io`** as a **redirect** to `https://www.botcheck.io` so any old links/emails still resolve (`vercel.json` + Worker `PRIMARY_HOSTNAMES`).
    Add it as a domain in Vercel and set it to redirect to the apex.
 4. Wait for SSL provisioning (Vercel emails when verification completes).
 5. Ensure `APP_URL=https://botcheck.io` on Vercel **and** the Stripe webhook URL (section 3) match.
