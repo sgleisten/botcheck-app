@@ -1,4 +1,12 @@
 {
   "framework": "tanstack-start",
-  "regions": ["iad1"]
+  "regions": ["iad1"],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "app.botcheck.io" }],
+      "destination": "https://www.botcheck.io/:path*",
+      "permanent": true
+    }
+  ]
 }

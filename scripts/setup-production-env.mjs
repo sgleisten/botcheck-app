@@ -7,7 +7,7 @@
  * Vercel CLI: `npx vercel login` then env add / redeploy
  */
 
-const PRODUCTION_URL = 'https://app.botcheck.io'
+const PRODUCTION_URL = 'https://www.botcheck.io'
 const VERCEL_FALLBACK = 'https://botcheck-app.vercel.app'
 
 const envVars = {
@@ -28,8 +28,8 @@ Vercel fallback (live now): ${VERCEL_FALLBACK}
 
 ## 1. Vercel custom domain
 
-1. Vercel project → Domains → add app.botcheck.io
-2. Add DNS CNAME per Vercel instructions
+1. Vercel project → Domains → add www.botcheck.io and botcheck.io (apex)
+2. Add app.botcheck.io as redirect to www.botcheck.io (vercel.json handles this)
 3. Wait for SSL
 
 ## 2. Vercel environment variables (Production)

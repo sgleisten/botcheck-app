@@ -14,8 +14,9 @@ compatibility_date = "2024-11-01"
 # { client_id, status }.
 [vars]
 SUPABASE_URL = "https://mbqpbtrmodglklfofwlz.supabase.co"
-APP_URL = "https://botcheck.io"
+APP_URL = "https://www.botcheck.io"
 # Confirmed in docs/DEPLOY.md as the project's stable Vercel domain — verify
 # this still matches Vercel → Project → Settings → Domains before relying on it.
 VERCEL_ORIGIN = "botcheck-app.vercel.app"
-PRIMARY_HOSTNAMES = "botcheck.io,www.botcheck.io"
+# Include app.botcheck.io so legacy links pass through to Vercel instead of 404ing.
+PRIMARY_HOSTNAMES = "botcheck.io,www.botcheck.io,app.botcheck.io"

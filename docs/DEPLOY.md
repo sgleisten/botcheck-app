@@ -126,7 +126,7 @@ Point the apex domain at this Vercel project:
 2. At **Cloudflare** (registrar for `botcheck.io`):
    - Apex `botcheck.io`: **A record** → `76.76.21.21` (Vercel), or switch nameservers to `ns1/ns2.vercel-dns.com`.
    - `www`: **CNAME** → `cname.vercel-dns.com` (Vercel will set the `www` ↔ apex redirect).
-3. (Optional) Keep **`app.botcheck.io`** as a **redirect** to `https://botcheck.io` so any old links/emails still resolve.
+3. (Optional) Keep **`app.botcheck.io`** as a **redirect** to `https://www.botcheck.io` so any old links/emails still resolve (`vercel.json` + Worker `PRIMARY_HOSTNAMES`).
    Add it as a domain in Vercel and set it to redirect to the apex.
 4. Wait for SSL provisioning (Vercel emails when verification completes).
 5. Ensure `APP_URL=https://botcheck.io` on Vercel **and** the Stripe webhook URL (section 3) match.
