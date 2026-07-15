@@ -8,9 +8,10 @@ export type SurfaceProbeResult = {
   toolsJson: SurfaceCheck
   indexJson: SurfaceCheck
   jsonld: SurfaceCheck
+  apiCatalog: SurfaceCheck
   contentSignal: SurfaceCheck
   robotsAllowsAi?: SurfaceCheck
-  /** Count of llms.txt, tools.json, index.json, jsonld passing. */
+  /** Count of discovery files passing (llms, tools, index, jsonld, api-catalog). */
   filesLive: number
   fileCount: number
 }
@@ -184,6 +185,33 @@ function checkContentSignal(res: FetchSurfaceResult, url: string): SurfaceCheck 
   }
 }
 
+function checkApiCatalog(res: FetchSurfaceResult, url: string): SurfaceCheck {
+  let ok = false
+  if (res.ok && res.body.trim()) {
+    try {
+      const parsed = JSON.parse(res.body) as { linkset?: unknown }
+      ok = Array.isArray(parsed.linkset)
+    } catch {
+      ok = false
+    }
+  }
+  return {
+    ok,
+    detail: ok
+      ? 'Valid api-catalog linkset'
+      : res.ok
+        ? 'Invalid api-catalog JSON'
+        : `HTTP ${res.status || 'unreachable'}`,
+    url,
+  }
+}
+
+function apiCatalogPath(origin: string): string {
+  // BotCheck-hosted surfaces use /sites/{clientId}/api-catalog
+  if (/\/sites\/[0-9a-f-]{36}$/i.test(origin)) return `${origin}/api-catalog`
+  return `${origin}/.well-known/api-catalog`
+}
+
 /** Probe AI discovery files at a base URL (main site, subdomain, or BotCheck-hosted path). */
 export async function probeSurface(
   baseUrl: string,
@@ -195,24 +223,27 @@ export async function probeSurface(
   const toolsUrl = `${origin}/tools.json`
   const indexUrl = `${origin}/index.json`
   const jsonldUrl = `${origin}/jsonld`
+  const catalogUrl = apiCatalogPath(origin)
 
   const fetches: Promise<FetchSurfaceResult | null>[] = [
     fetchSurfaceUrl(llmsUrl),
     fetchSurfaceUrl(toolsUrl),
     fetchSurfaceUrl(indexUrl),
     fetchSurfaceUrl(jsonldUrl),
+    fetchSurfaceUrl(catalogUrl),
     options?.includeRobots ? fetchSurfaceUrl(`${origin}/robots.txt`) : Promise.resolve(null),
   ]
 
-  const [llmsRes, toolsRes, indexRes, jsonldRes, robotsRes] = await Promise.all(fetches)
+  const [llmsRes, toolsRes, indexRes, jsonldRes, catalogRes, robotsRes] = await Promise.all(fetches)
 
   const llmsTxt = checkLlmsTxt(llmsRes!, llmsUrl)
   const toolsJson = checkJsonFile(toolsRes!, toolsUrl)
   const indexJson = checkJsonFile(indexRes!, indexUrl)
   const jsonld = checkJsonFile(jsonldRes!, jsonldUrl)
+  const apiCatalog = checkApiCatalog(catalogRes!, catalogUrl)
   const contentSignal = checkContentSignal(llmsRes!, llmsUrl)
 
-  const fileChecks = [llmsTxt, toolsJson, indexJson, jsonld]
+  const fileChecks = [llmsTxt, toolsJson, indexJson, jsonld, apiCatalog]
   const filesLive = fileChecks.filter((c) => c.ok).length
 
   let robotsAllowsAiCheck: SurfaceCheck | undefined
@@ -221,9 +252,12 @@ export async function probeSurface(
       robotsRes.status === 0
         ? { ok: true, detail: 'robots.txt unreachable — assumed open' }
         : robotsAllowsAi(robotsRes.body)
+    const hasContentSignal = /content-signal\s*:/i.test(robotsRes.body)
     robotsAllowsAiCheck = {
       ok: robots.ok,
-      detail: robots.detail,
+      detail: hasContentSignal
+        ? `${robots.detail} · Content-Signal present`
+        : `${robots.detail} · no Content-Signal line`,
       url: `${origin}/robots.txt`,
     }
   }
@@ -234,10 +268,11 @@ export async function probeSurface(
     toolsJson,
     indexJson,
     jsonld,
+    apiCatalog,
     contentSignal,
     robotsAllowsAi: robotsAllowsAiCheck,
     filesLive,
-    fileCount: 4,
+    fileCount: 5,
   }
 }
 

@@ -32,9 +32,18 @@ export interface Env {
   PRIMARY_HOSTNAMES: string
 }
 
-// The profile route only serves these two files today; mirror that here so the
-// Worker 404s fast on anything else without a round-trip upstream.
-const SUPPORTED_FILES = new Set(['llms.txt', 'tools.json', 'index.json', 'jsonld'])
+// Profile files served via APP_URL/sites/{clientId}/{file}. Also accept the
+// RFC 9727 well-known path and rewrite it to the api-catalog surface.
+const SUPPORTED_FILES = new Set(['llms.txt', 'tools.json', 'index.json', 'jsonld', 'api-catalog'])
+
+function resolveProfileFile(pathname: string): string | null {
+  const file = pathname.replace(/^\/+/, '')
+  if (file === '.well-known/api-catalog' || file === 'well-known/api-catalog') {
+    return 'api-catalog'
+  }
+  if (SUPPORTED_FILES.has(file)) return file
+  return null
+}
 
 // Edge-cache the hostname -> client mapping so we don't hit Supabase on every
 // request. Short TTL keeps re-registrations / churn from going stale for long.
@@ -58,9 +67,9 @@ export default {
       return new Response('Method not allowed', { status: 405 })
     }
 
-    const file = url.pathname.replace(/^\/+/, '')
+    const file = resolveProfileFile(url.pathname)
 
-    if (!SUPPORTED_FILES.has(file)) {
+    if (!file) {
       return new Response('Not found', { status: 404 })
     }
 
@@ -75,7 +84,7 @@ export default {
     }
 
     if (!mapping) {
-      console.log(`[worker] unmapped host=${host} path=/${file}`)
+      console.log(`[worker] unmapped host=${host} path=${url.pathname}`)
       return new Response('Not found', { status: 404 })
     }
 

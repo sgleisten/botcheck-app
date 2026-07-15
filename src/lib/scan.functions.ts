@@ -127,7 +127,25 @@ type ScanResult = {
 
 export type ScanResultWithEmail = ScanResult & { email: string | null }
 
-const SUBPAGE_KEYWORDS = ['/book', '/contact', '/pricing', '/services', '/appointment', '/rates']
+const SUBPAGE_KEYWORDS = [
+  '/book',
+  '/contact',
+  '/pricing',
+  '/services',
+  '/appointment',
+  '/rates',
+  '/join',
+  '/demo',
+  '/signup',
+  '/sign-up',
+  '/register',
+  '/leadership',
+  '/about',
+  '/get-started',
+  '/start',
+  '/trial',
+  '/enroll',
+]
 
 async function firecrawlScrape(
   url: string,

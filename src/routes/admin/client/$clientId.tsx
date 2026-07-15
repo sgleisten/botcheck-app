@@ -17,8 +17,10 @@ import {
   getBrandVisibilityExportContent,
   deleteBrandVisibilityExport,
   probeClientDeliverySurfaces,
+  generateAccessibilityPack,
 } from '@/lib/admin.functions'
 import type { SurfaceProbeResult } from '@/lib/surface-probe'
+import type { AccessibilityPack } from '@/lib/accessibility-pack'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
 
@@ -151,6 +153,7 @@ function ClientWorkspace() {
   const [prompts, setPrompts] = useState<string[]>([])
   const [brandPhase, setBrandPhase] = useState<'baseline' | 'post_delivery'>('baseline')
   const [toolUrlInput, setToolUrlInput] = useState(data.brandToolUrl ?? '')
+  const [a11yPack, setA11yPack] = useState<AccessibilityPack | null>(null)
 
   async function run(key: string, fn: () => Promise<void | string>) {
     setBusy(key)
@@ -372,9 +375,52 @@ function ClientWorkspace() {
                     {busy === 'approve' ? 'Approving…' : 'Approve & publish'}
                   </Button>
                 )}
-                <CopyButton text={data.profile.robotsTxtAdditions} label="Copy robots.txt additions" />
-                <CopyButton text={data.jsonLdSnippet} label="Copy JSON-LD snippet" />
-                <CopyButton text={data.indexJsonPreview} label="Copy index.json" />
+              </div>
+
+              <div className="space-y-2 border-t border-teal/10 pt-3">
+                <p className="text-xs font-semibold text-teal/70">Paste onto their site</p>
+                <p className="text-[11px] text-teal/55">
+                  Agency model: copy these into the CMS / DNS / host — BotCheck does not store hosting
+                  passwords.
+                </p>
+                <ul className="text-xs text-teal/80 list-disc pl-5 space-y-1">
+                  {data.onSiteChecklist.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+                <div className="flex flex-wrap gap-2">
+                  <CopyButton text={data.profile.llmsTxt} label="Copy llms.txt" />
+                  <CopyButton text={data.profile.toolsJson} label="Copy tools.json" />
+                  <CopyButton text={data.indexJsonPreview} label="Copy index.json" />
+                  <CopyButton text={data.apiCatalogPreview} label="Copy api-catalog" />
+                  <CopyButton text={data.profile.robotsTxtAdditions} label="Copy robots.txt additions" />
+                  <CopyButton text={data.jsonLdSnippet} label="Copy JSON-LD snippet" />
+                  <CopyButton text={data.linkHeaderSnippet} label="Copy Link header" />
+                </div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-teal/70 font-semibold">
+                    Preview robots.txt additions (includes Content-Signal)
+                  </summary>
+                  <pre className="mt-2 p-2 bg-cream border border-teal/15 rounded overflow-x-auto whitespace-pre-wrap font-mono text-[11px]">
+                    {data.profile.robotsTxtAdditions}
+                  </pre>
+                </details>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-teal/70 font-semibold">
+                    Preview Link header snippet
+                  </summary>
+                  <pre className="mt-2 p-2 bg-cream border border-teal/15 rounded overflow-x-auto whitespace-pre-wrap font-mono text-[11px]">
+                    {data.linkHeaderSnippet}
+                  </pre>
+                </details>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-teal/70 font-semibold">
+                    Preview /.well-known/api-catalog
+                  </summary>
+                  <pre className="mt-2 p-2 bg-cream border border-teal/15 rounded overflow-x-auto whitespace-pre-wrap font-mono text-[11px]">
+                    {data.apiCatalogPreview}
+                  </pre>
+                </details>
               </div>
 
               {data.profile.status === 'live' && (
@@ -398,6 +444,11 @@ function ClientWorkspace() {
                   <p>
                     <a href={data.urls.jsonld} target="_blank" rel="noreferrer" className="underline">
                       {data.urls.jsonld}
+                    </a>
+                  </p>
+                  <p>
+                    <a href={data.urls.apiCatalog} target="_blank" rel="noreferrer" className="underline">
+                      {data.urls.apiCatalog}
                     </a>
                   </p>
                   {'customSurface' in data.urls && data.urls.customSurface && (
@@ -446,6 +497,16 @@ function ClientWorkspace() {
                           {data.urls.customSurface.jsonld}
                         </a>
                       </p>
+                      <p>
+                        <a
+                          href={data.urls.customSurface.apiCatalog}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                        >
+                          {data.urls.customSurface.apiCatalog}
+                        </a>
+                      </p>
                     </>
                   )}
                 </div>
@@ -458,6 +519,124 @@ function ClientWorkspace() {
                 {data.urls.onboarding}
               </a>
             </p>
+          )}
+        </Section>
+
+        {/* Accessibility pack */}
+        <Section
+          title="Images & video — suggested alt / summaries"
+          subtitle="Scrape public media, suggest copy, paste into the CMS. Same agency model."
+        >
+          <div className="flex flex-wrap gap-2 items-center">
+            <Button
+              type="button"
+              disabled={busy === 'a11y'}
+              onClick={() =>
+                run('a11y', async () => {
+                  const pack = await generateAccessibilityPack({ data: { clientId } })
+                  setA11yPack(pack)
+                  return `Found ${pack.images.length} images and ${pack.videos.length} videos.`
+                })
+              }
+            >
+              {busy === 'a11y' ? 'Generating…' : 'Generate suggestions'}
+            </Button>
+            {a11yPack && (
+              <span className="text-xs text-teal/55">
+                Scanned {a11yPack.pagesScanned.length} page
+                {a11yPack.pagesScanned.length === 1 ? '' : 's'} · {fmtDate(a11yPack.generatedAt)}
+              </span>
+            )}
+          </div>
+          {!a11yPack ? (
+            <p className="text-sm text-teal/60">
+              Run generate to list hero/product images missing alt text and videos that need an on-page
+              summary (play-button aria-labels alone are not enough for agent readiness).
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {a11yPack.images.length === 0 && a11yPack.videos.length === 0 && (
+                <p className="text-sm text-teal/60">No significant images or videos found on scanned pages.</p>
+              )}
+              {a11yPack.images.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-teal/70">Images</p>
+                  {a11yPack.images.map((img) => (
+                    <details
+                      key={img.src}
+                      className="border border-teal/15 rounded bg-cream/80 open:bg-white"
+                    >
+                      <summary className="cursor-pointer px-3 py-2 text-xs flex flex-wrap gap-2 items-center">
+                        <span
+                          className={
+                            img.altQuality === 'empty'
+                              ? 'text-coral font-semibold'
+                              : img.altQuality === 'weak'
+                                ? 'text-orange font-semibold'
+                                : 'text-green font-semibold'
+                          }
+                        >
+                          {img.altQuality}
+                        </span>
+                        <span className="text-teal/50 uppercase">{img.impact}</span>
+                        <span className="font-mono text-teal/70 truncate max-w-[280px]">{img.src}</span>
+                      </summary>
+                      <div className="px-3 pb-3 space-y-2 text-xs">
+                        <p className="text-teal/60">
+                          Page:{' '}
+                          <a href={img.pageUrl} target="_blank" rel="noreferrer" className="underline">
+                            {img.pageUrl}
+                          </a>
+                        </p>
+                        <p>
+                          <span className="font-semibold text-teal/70">Current alt: </span>
+                          {img.currentAlt.trim() ? (
+                            <span className="font-mono">{img.currentAlt}</span>
+                          ) : (
+                            <span className="text-coral">(empty)</span>
+                          )}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-teal/70">Suggested alt: </span>
+                          <span>{img.suggestedAlt}</span>
+                        </p>
+                        <CopyButton text={img.suggestedAlt} label="Copy suggested alt" />
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+              {a11yPack.videos.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-teal/70">Videos</p>
+                  {a11yPack.videos.map((vid, i) => (
+                    <details
+                      key={`${vid.locator}-${i}`}
+                      className="border border-teal/15 rounded bg-cream/80 open:bg-white"
+                    >
+                      <summary className="cursor-pointer px-3 py-2 text-xs flex flex-wrap gap-2 items-center">
+                        <span className="text-orange font-semibold">video</span>
+                        <span className="text-teal/80">{vid.label}</span>
+                      </summary>
+                      <div className="px-3 pb-3 space-y-2 text-xs">
+                        <p className="text-teal/60">
+                          Page:{' '}
+                          <a href={vid.pageUrl} target="_blank" rel="noreferrer" className="underline">
+                            {vid.pageUrl}
+                          </a>
+                        </p>
+                        <p className="font-mono text-teal/55 break-all">{vid.locator}</p>
+                        <p>
+                          <span className="font-semibold text-teal/70">Suggested on-page summary: </span>
+                          {vid.suggestedSummary}
+                        </p>
+                        <CopyButton text={vid.suggestedSummary} label="Copy video summary" />
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </Section>
 
@@ -555,7 +734,10 @@ function ClientWorkspace() {
 
         {/* On-site (hosting access) */}
         {data.client.hostingAccess && data.profile && (
-          <Section title="On their website (hosting access)" subtitle="Additive discovery on the root domain.">
+          <Section
+            title="On their website (hosting access)"
+            subtitle="Client granted hosting access — use the Paste onto their site checklist above."
+          >
             <ul className="text-xs text-teal/80 list-disc pl-5 space-y-1">
               {data.onSiteChecklist.map((s) => (
                 <li key={s}>{s}</li>
@@ -564,8 +746,11 @@ function ClientWorkspace() {
             <div className="flex flex-wrap gap-2">
               <CopyButton text={data.profile.llmsTxt} label="Copy llms.txt" />
               <CopyButton text={data.profile.toolsJson} label="Copy tools.json" />
+              <CopyButton text={data.indexJsonPreview} label="Copy index.json" />
+              <CopyButton text={data.apiCatalogPreview} label="Copy api-catalog" />
               <CopyButton text={data.profile.robotsTxtAdditions} label="Copy robots.txt additions" />
               <CopyButton text={data.jsonLdSnippet} label="Copy JSON-LD" />
+              <CopyButton text={data.linkHeaderSnippet} label="Copy Link header" />
             </div>
           </Section>
         )}
@@ -885,6 +1070,7 @@ function DeliverySurfaceAudit({
                 <AuditRow label="tools.json" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.toolsJson} sub={audit.aiSubdomain?.toolsJson} hosted={audit.botcheckHosted?.toolsJson} />
                 <AuditRow label="index.json" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.indexJson} sub={audit.aiSubdomain?.indexJson} hosted={audit.botcheckHosted?.indexJson} />
                 <AuditRow label="jsonld" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.jsonld} sub={audit.aiSubdomain?.jsonld} hosted={audit.botcheckHosted?.jsonld} />
+                <AuditRow label="api-catalog" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.apiCatalog} sub={audit.aiSubdomain?.apiCatalog} hosted={audit.botcheckHosted?.apiCatalog} />
                 <AuditRow label="Content-Signal" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.contentSignal} sub={audit.aiSubdomain?.contentSignal} hosted={audit.botcheckHosted?.contentSignal} />
                 {audit.mainSite.robotsAllowsAi && (
                   <AuditRow label="robots.txt (AI allowed)" showSub={Boolean(audit.aiSubdomain)} showHosted={Boolean(audit.botcheckHosted)} main={audit.mainSite.robotsAllowsAi} />

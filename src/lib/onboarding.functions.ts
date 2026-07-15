@@ -48,7 +48,8 @@ you generate three files in a single response:
 2. tools.json — a JSON array of tool definitions describing the business's bookable services, \
    APIs, or interactive features that AI assistants can use on behalf of users
 3. robots_txt_additions — lines to APPEND to an existing robots.txt (never a full replacement); \
-   controls AI crawler access per the client's preferences
+   include User-agent rules that allow major AI crawlers when appropriate, and always include \
+   a Content-Signal line: Content-Signal: ai-train=no, search=yes, ai-input=yes
 
 Respond with valid JSON only — no markdown fences, no prose. The JSON must have exactly \
 these three top-level keys: "llms_txt", "tools_json", "robots_txt_additions". \
@@ -245,7 +246,9 @@ ${questionnaireAnswers}`,
       throw new Error(`Claude returned invalid JSON: ${raw.slice(0, 200)}`)
     }
 
-    const { llms_txt, tools_json, robots_txt_additions } = parsed
+    const { llms_txt, tools_json, robots_txt_additions: rawRobots } = parsed
+    const { ensureRobotsTxtAdditions } = await import('./profile-surfaces')
+    const robots_txt_additions = ensureRobotsTxtAdditions(rawRobots)
 
     const { data: inserted, error } = await supabaseAdmin
       .from('profiles')

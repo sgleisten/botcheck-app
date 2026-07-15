@@ -4,6 +4,7 @@ import {
   agentSurfaceHeaders,
   buildIndexJson,
   buildJsonLd,
+  buildApiCatalog,
 } from '@/lib/profile-surfaces'
 
 function getSupabase() {
@@ -13,7 +14,7 @@ function getSupabase() {
   return createClient(url, key)
 }
 
-const ALLOWED_FILES = ['llms.txt', 'tools.json', 'index.json', 'jsonld'] as const
+const ALLOWED_FILES = ['llms.txt', 'tools.json', 'index.json', 'jsonld', 'api-catalog'] as const
 type AllowedFile = (typeof ALLOWED_FILES)[number]
 
 function isAllowedFile(name: string): name is AllowedFile {
@@ -100,6 +101,16 @@ export const Route = createFileRoute('/sites/$clientId/$filename')({
             status: 200,
             headers: agentSurfaceHeaders({
               'Content-Type': 'application/ld+json; charset=utf-8',
+            }),
+          })
+        }
+
+        if (filename === 'api-catalog') {
+          const body = buildApiCatalog(surfaceInput)
+          return new Response(JSON.stringify(body, null, 2), {
+            status: 200,
+            headers: agentSurfaceHeaders({
+              'Content-Type': 'application/linkset+json; charset=utf-8',
             }),
           })
         }

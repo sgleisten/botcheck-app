@@ -322,6 +322,8 @@ export const getClientProfile = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     await assertAdmin()
 
+    const { ensureRobotsTxtAdditions } = await import('./profile-surfaces')
+
     const { data: profile, error } = await supabaseAdmin
       .from('profiles')
       .select('id, status, version, llms_txt, tools_json, robots_txt_additions, generated_at')
@@ -339,7 +341,9 @@ export const getClientProfile = createServerFn({ method: 'GET' })
       version: profile.version as number,
       llmsTxt: (profile.llms_txt as string | null) ?? '',
       toolsJson: profile.tools_json ? JSON.stringify(profile.tools_json, null, 2) : '',
-      robotsTxtAdditions: (profile.robots_txt_additions as string | null) ?? '',
+      robotsTxtAdditions: ensureRobotsTxtAdditions(
+        (profile.robots_txt_additions as string | null) ?? '',
+      ),
       generatedAt: profile.generated_at as string | null,
     }
   })
@@ -597,7 +601,7 @@ export const getClientDeployData = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     await assertAdmin()
 
-    const { buildIndexJson, buildJsonLd, onSiteDeployChecklist, profileFileUrl } = await import(
+    const { buildIndexJson, buildJsonLd, buildApiCatalog, buildLinkHeaderSnippet, ensureRobotsTxtAdditions, onSiteDeployChecklist, profileFileUrl } = await import(
       './profile-surfaces'
     )
 
@@ -664,7 +668,9 @@ export const getClientDeployData = createServerFn({ method: 'GET' })
             status: profile.status as string,
             llmsTxt: (profile.llms_txt as string | null) ?? '',
             toolsJson: profile.tools_json ? JSON.stringify(profile.tools_json, null, 2) : '',
-            robotsTxtAdditions: (profile.robots_txt_additions as string | null) ?? '',
+            robotsTxtAdditions: ensureRobotsTxtAdditions(
+              (profile.robots_txt_additions as string | null) ?? '',
+            ),
           }
         : null,
       scores: {
@@ -690,11 +696,14 @@ export const getClientDeployData = createServerFn({ method: 'GET' })
         toolsJson: profileFileUrl(appUrl, data.clientId, 'tools.json'),
         indexJson: profileFileUrl(appUrl, data.clientId, 'index.json'),
         jsonld: profileFileUrl(appUrl, data.clientId, 'jsonld'),
+        apiCatalog: profileFileUrl(appUrl, data.clientId, 'api-catalog'),
         dnsSetup: `${appUrl}/onboarding/dns-setup/${data.clientId}`,
         clientReport: `${appUrl}/print/client/${data.clientId}`,
       },
       jsonLdSnippet,
       indexJsonPreview: JSON.stringify(buildIndexJson(surfaceInput), null, 2),
+      apiCatalogPreview: JSON.stringify(buildApiCatalog(surfaceInput), null, 2),
+      linkHeaderSnippet: buildLinkHeaderSnippet(client.domain as string),
       onSiteChecklist: onSiteDeployChecklist(client.domain as string),
       fallbackOrigin: process.env.CLOUDFLARE_FALLBACK_ORIGIN ?? 'fallback.botcheck.io',
     }
@@ -972,7 +981,7 @@ export const getClientDetail = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     await assertAdmin()
 
-    const { buildIndexJson, buildJsonLd, onSiteDeployChecklist, profileFileUrl } = await import(
+    const { buildIndexJson, buildJsonLd, buildApiCatalog, buildLinkHeaderSnippet, ensureRobotsTxtAdditions, onSiteDeployChecklist, profileFileUrl } = await import(
       './profile-surfaces'
     )
 
@@ -1065,7 +1074,9 @@ export const getClientDetail = createServerFn({ method: 'GET' })
             version: profile.version as number,
             llmsTxt: (profile.llms_txt as string | null) ?? '',
             toolsJson: profile.tools_json ? JSON.stringify(profile.tools_json, null, 2) : '',
-            robotsTxtAdditions: (profile.robots_txt_additions as string | null) ?? '',
+            robotsTxtAdditions: ensureRobotsTxtAdditions(
+              (profile.robots_txt_additions as string | null) ?? '',
+            ),
             generatedAt: (profile.generated_at as string | null) ?? null,
           }
         : null,
@@ -1099,6 +1110,7 @@ export const getClientDetail = createServerFn({ method: 'GET' })
         toolsJson: profileFileUrl(appUrl, data.clientId, 'tools.json'),
         indexJson: profileFileUrl(appUrl, data.clientId, 'index.json'),
         jsonld: profileFileUrl(appUrl, data.clientId, 'jsonld'),
+        apiCatalog: profileFileUrl(appUrl, data.clientId, 'api-catalog'),
         dnsSetup: `${appUrl}/onboarding/dns-setup/${data.clientId}`,
         onboarding: `${appUrl}/onboarding/${data.clientId}`,
         clientReport: `${appUrl}/print/client/${data.clientId}`,
@@ -1111,12 +1123,15 @@ export const getClientDetail = createServerFn({ method: 'GET' })
                 toolsJson: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/tools.json`,
                 indexJson: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/index.json`,
                 jsonld: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/jsonld`,
+                apiCatalog: `https://${(client.custom_hostname as string).replace(/^https?:\/\//i, '')}/.well-known/api-catalog`,
               },
             }
           : {}),
       },
       jsonLdSnippet: `<script type="application/ld+json">\n${jsonLd}\n</script>`,
       indexJsonPreview: JSON.stringify(buildIndexJson(surfaceInput), null, 2),
+      apiCatalogPreview: JSON.stringify(buildApiCatalog(surfaceInput), null, 2),
+      linkHeaderSnippet: buildLinkHeaderSnippet(client.domain as string),
       onSiteChecklist: onSiteDeployChecklist(client.domain as string),
       fallbackOrigin: process.env.CLOUDFLARE_FALLBACK_ORIGIN?.trim() || 'fallback.botcheck.io',
       cloudflareConfigured: Boolean(
@@ -1518,4 +1533,24 @@ export const probeClientDeliverySurfaces = createServerFn({ method: 'POST' })
       aiSubdomainStatus: (client.custom_hostname_status as string | null) ?? null,
       profileLive,
     }
+  })
+
+export const generateAccessibilityPack = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => clientIdSchema.parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const { data: client, error } = await supabaseAdmin
+      .from('clients')
+      .select('id, domain, business_name')
+      .eq('id', data.clientId)
+      .single()
+
+    if (error || !client) throw new Error('Client not found')
+
+    const { buildAccessibilityPack } = await import('./accessibility-pack')
+    return buildAccessibilityPack(
+      client.domain as string,
+      (client.business_name as string | null) ?? null,
+    )
   })
