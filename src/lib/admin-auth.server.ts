@@ -1,5 +1,6 @@
 import { useSession } from '@tanstack/react-start/server'
 import { redirect } from '@tanstack/react-router'
+import { supabaseAdmin } from '@/integrations/supabase/client.server'
 
 // Server-only admin session helpers. Kept in a .server.ts module so they can be
 // shared by admin.functions.ts and hostname.functions.ts without exporting a
@@ -24,11 +25,71 @@ export function sessionConfig() {
   }
 }
 
+export function superAdminUserId(): string | null {
+  return process.env.ADMIN_USER_ID?.trim() || null
+}
+
+export function isSuperAdminUser(userId: string): boolean {
+  const superId = superAdminUserId()
+  return Boolean(superId && superId === userId)
+}
+
+/** Super admin (ADMIN_USER_ID) or a row in admin_users. */
+export async function isAdminUser(userId: string): Promise<boolean> {
+  if (isSuperAdminUser(userId)) return true
+
+  const { data, error } = await supabaseAdmin
+    .from('admin_users')
+    .select('user_id')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[admin] admin_users lookup failed:', error.message)
+    return false
+  }
+  return Boolean(data)
+}
+
+export async function isAdminEmail(email: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) return false
+
+  const superId = superAdminUserId()
+  if (superId) {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(superId)
+    if (!error && data.user?.email?.toLowerCase() === normalized) return true
+    const fallback = process.env.ADMIN_EMAIL?.trim().toLowerCase()
+    if (fallback === normalized) return true
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('admin_users')
+    .select('user_id')
+    .ilike('email', normalized)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[admin] admin_users email lookup failed:', error.message)
+    return false
+  }
+  return Boolean(data)
+}
+
 export async function assertAdmin() {
-  const adminUserId = process.env.ADMIN_USER_ID
   const session = await useSession<AdminSession>(sessionConfig())
-  if (!adminUserId || session.data.userId !== adminUserId) {
+  const userId = session.data.userId
+  if (!userId || !(await isAdminUser(userId))) {
     throw redirect({ to: '/admin/login' })
   }
-  return session.data.userId as string
+  return userId
+}
+
+/** Only the env-configured super admin may manage other admins. */
+export async function assertSuperAdmin() {
+  const userId = await assertAdmin()
+  if (!isSuperAdminUser(userId)) {
+    throw new Error('Super admin only')
+  }
+  return userId
 }

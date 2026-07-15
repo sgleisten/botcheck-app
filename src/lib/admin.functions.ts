@@ -9,7 +9,7 @@ import {
   onboardingUrl,
   type BillingType,
 } from '@/lib/billing.server'
-import { assertAdmin, sessionConfig, type AdminSession } from './admin-auth.server'
+import { assertAdmin, assertSuperAdmin, isAdminEmail, isAdminUser, isSuperAdminUser, sessionConfig, type AdminSession } from './admin-auth.server'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -18,8 +18,8 @@ export const adminLogin = createServerFn({ method: 'POST' })
     z.object({ email: z.string().email(), password: z.string().min(1) }).parse(input),
   )
   .handler(async ({ data }) => {
-    const adminUserId = process.env.ADMIN_USER_ID
-    if (!adminUserId) throw new Error('ADMIN_USER_ID is not configured')
+    const superAdminId = process.env.ADMIN_USER_ID
+    if (!superAdminId) throw new Error('ADMIN_USER_ID is not configured')
 
     const { data: auth, error } = await supabaseAuth.auth.signInWithPassword({
       email: data.email,
@@ -33,7 +33,7 @@ export const adminLogin = createServerFn({ method: 'POST' })
       )
     }
     if (!auth.user) throw new Error('Email or password is incorrect.')
-    if (auth.user.id !== adminUserId) throw new Error('Not authorized')
+    if (!(await isAdminUser(auth.user.id))) throw new Error('Not authorized')
 
     const session = await useSession<AdminSession>(sessionConfig())
     await session.update({ userId: auth.user.id })
@@ -65,8 +65,8 @@ export const adminRequestPasswordReset = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     if (!process.env.ADMIN_USER_ID) throw new Error('ADMIN_USER_ID is not configured')
 
-    const adminEmail = await getAdminAuthEmail()
-    if (!adminEmail || adminEmail.toLowerCase() !== data.email.trim().toLowerCase()) {
+    const email = data.email.trim()
+    if (!(await isAdminEmail(email))) {
       // Same response whether or not the email matches — avoid account enumeration.
       return { ok: true, message: RESET_SENT_MESSAGE }
     }
@@ -78,7 +78,7 @@ export const adminRequestPasswordReset = createServerFn({ method: 'POST' })
       )
     }
 
-    const { error } = await supabaseAuth.auth.resetPasswordForEmail(adminEmail, { redirectTo })
+    const { error } = await supabaseAuth.auth.resetPasswordForEmail(email, { redirectTo })
     if (error) {
       console.error('[admin] resetPasswordForEmail failed:', error.message)
       throw new Error('Could not send reset email. Try again or reset via Supabase dashboard.')
@@ -98,8 +98,7 @@ export const adminCompletePasswordReset = createServerFn({ method: 'POST' })
       .parse(input),
   )
   .handler(async ({ data }) => {
-    const adminUserId = process.env.ADMIN_USER_ID
-    if (!adminUserId) throw new Error('ADMIN_USER_ID is not configured')
+    if (!process.env.ADMIN_USER_ID) throw new Error('ADMIN_USER_ID is not configured')
 
     const { data: sessionData, error } = await supabaseAuth.auth.setSession({
       access_token: data.accessToken,
@@ -109,7 +108,7 @@ export const adminCompletePasswordReset = createServerFn({ method: 'POST' })
     if (error || !sessionData.user) {
       throw new Error('This reset link is invalid or expired. Request a new one.')
     }
-    if (sessionData.user.id !== adminUserId) {
+    if (!(await isAdminUser(sessionData.user.id))) {
       await supabaseAuth.auth.signOut()
       throw new Error('Not authorized')
     }
@@ -122,6 +121,95 @@ export const adminCompletePasswordReset = createServerFn({ method: 'POST' })
     return { ok: true }
   })
 
+export const hideScan = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => z.object({ scanId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    const { error } = await supabaseAdmin
+      .from('scans')
+      .update({ hidden_at: new Date().toISOString() })
+      .eq('id', data.scanId)
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
+
+const inviteAdminSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+})
+
+async function findAuthUserIdByEmail(email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase()
+  let page = 1
+  for (;;) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 })
+    if (error) throw new Error(error.message)
+    const match = data.users.find((u) => u.email?.toLowerCase() === normalized)
+    if (match) return match.id
+    if (data.users.length < 200) break
+    page += 1
+  }
+  return null
+}
+
+export const inviteAdmin = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => inviteAdminSchema.parse(input))
+  .handler(async ({ data }) => {
+    const invitedBy = await assertSuperAdmin()
+    const email = data.email.trim().toLowerCase()
+
+    if (await isAdminEmail(email)) {
+      throw new Error('That email already has admin access.')
+    }
+
+    let userId: string | null = null
+
+    const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password: data.password,
+      email_confirm: true,
+    })
+
+    if (createError) {
+      const already =
+        /already|registered|exists/i.test(createError.message) ||
+        createError.message.includes('duplicate')
+      if (!already) throw new Error(createError.message)
+      userId = await findAuthUserIdByEmail(email)
+      if (!userId) throw new Error('User exists but could not be linked. Add them in Supabase Auth first.')
+      const { error: pwError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+        password: data.password,
+      })
+      if (pwError) throw new Error(pwError.message)
+    } else {
+      userId = created.user?.id ?? null
+    }
+
+    if (!userId) throw new Error('Could not create admin user.')
+
+    const { error: insertError } = await supabaseAdmin.from('admin_users').insert({
+      user_id: userId,
+      email,
+      invited_by: invitedBy,
+    })
+    if (insertError) throw new Error(insertError.message)
+
+    return { ok: true, email }
+  })
+
+export const removeAdmin = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => z.object({ userId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await assertSuperAdmin()
+    if (isSuperAdminUser(data.userId)) {
+      throw new Error('Cannot remove the super admin.')
+    }
+
+    const { error } = await supabaseAdmin.from('admin_users').delete().eq('user_id', data.userId)
+    if (error) throw new Error(error.message)
+    return { ok: true }
+  })
+
 // ─── Dashboard data ────────────────────────────────────────────────────────────
 
 const getAdminDataSchema = z.object({ includeArchived: z.boolean().optional() })
@@ -129,7 +217,8 @@ const getAdminDataSchema = z.object({ includeArchived: z.boolean().optional() })
 export const getAdminData = createServerFn({ method: 'GET' })
   .validator((input: unknown) => getAdminDataSchema.parse(input ?? {}))
   .handler(async ({ data }) => {
-  await assertAdmin()
+  const userId = await assertAdmin()
+  const isSuperAdmin = isSuperAdminUser(userId)
 
   let clientsQuery = supabaseAdmin
     .from('clients')
@@ -153,8 +242,9 @@ export const getAdminData = createServerFn({ method: 'GET' })
     supabaseAdmin
       .from('scans')
       .select('id, url, client_id, ars_score, email, created_at')
+      .is('hidden_at', null)
       .order('created_at', { ascending: false })
-      .limit(50),
+      .limit(100),
 
     // Latest profile per client, for the per-row View/Edit/Approve actions.
     supabaseAdmin
@@ -230,7 +320,24 @@ export const getAdminData = createServerFn({ method: 'GET' })
       : null,
   }))
 
+  let adminUsers: Array<{ user_id: string; email: string; created_at: string }> = []
+  if (isSuperAdmin) {
+    const { data: rows } = await supabaseAdmin
+      .from('admin_users')
+      .select('user_id, email, created_at')
+      .order('created_at', { ascending: true })
+    adminUsers = (rows ?? []) as typeof adminUsers
+  }
+
+  const superAdminEmail =
+    isSuperAdmin && process.env.ADMIN_USER_ID
+      ? (await getAdminAuthEmail()) ?? process.env.ADMIN_EMAIL?.trim() ?? null
+      : null
+
   return {
+    isSuperAdmin,
+    superAdminEmail,
+    adminUsers,
     pendingProfiles: profilesRes.data as unknown as Array<{
       id: string
       client_id: string

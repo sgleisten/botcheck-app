@@ -55,8 +55,8 @@ function AdminLogin() {
         <h1 className="text-xl font-extrabold text-teal">Admin</h1>
 
         <p className="text-xs text-teal/60">
-          Admin passwords are managed through Supabase Auth — not stored in this app. Use the email
-          tied to your <code className="bg-teal/5 px-1">ADMIN_USER_ID</code> account.
+          Admin passwords are managed through Supabase Auth. Super admins and invited admins use the
+          same sign-in — use Forgot password if needed.
         </p>
 
         {error && (

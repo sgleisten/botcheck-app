@@ -13,6 +13,9 @@ import {
   archiveClient,
   unarchiveClient,
   rerunScan,
+  hideScan,
+  inviteAdmin,
+  removeAdmin,
 } from '@/lib/admin.functions'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
@@ -40,6 +43,33 @@ function sortRows<T>(
     return 0
   })
   return dir === 'asc' ? sorted : sorted.reverse()
+}
+
+function normalizeScanUrl(url: string): string {
+  try {
+    const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`)
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase()
+    const path = u.pathname.replace(/\/+$/, '') || '/'
+    return `${host}${path}${u.search}`
+  } catch {
+    return url.trim().toLowerCase()
+  }
+}
+
+function dedupeScans<T extends { url: string; created_at: string }>(
+  scans: T[],
+  showDuplicates: boolean,
+): T[] {
+  if (showDuplicates) return scans
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const scan of scans) {
+    const key = normalizeScanUrl(scan.url)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(scan)
+  }
+  return out
 }
 
 function SortHeader({
@@ -117,7 +147,8 @@ type ProfilePanel = {
 
 function AdminDashboard() {
   const router = useRouter()
-  const { pendingProfiles, clients, recentScans } = Route.useLoaderData()
+  const { pendingProfiles, clients, recentScans, isSuperAdmin, adminUsers, superAdminEmail } =
+    Route.useLoaderData()
 
   const [approved, setApproved] = useState<Set<string>>(new Set())
   const [approving, setApproving] = useState<string | null>(null)
@@ -198,6 +229,14 @@ function AdminDashboard() {
     key: null,
     dir: 'asc',
   })
+  const [showDuplicateScans, setShowDuplicateScans] = useState(false)
+
+  // ─── Admin users (super admin only) ───
+  const [adminInviteEmail, setAdminInviteEmail] = useState('')
+  const [adminInvitePassword, setAdminInvitePassword] = useState('')
+  const [adminInviteBusy, setAdminInviteBusy] = useState(false)
+  const [adminInviteMsg, setAdminInviteMsg] = useState<string | null>(null)
+  const [adminInviteErr, setAdminInviteErr] = useState<string | null>(null)
 
   function toggleSort(
     current: { key: string | null; dir: SortDir },
@@ -218,12 +257,20 @@ function AdminDashboard() {
     return ''
   })
 
-  const sortedScans = sortRows(recentScans, scanSort.key, scanSort.dir, (s, key) => {
-    if (key === 'hasEmail') return s.email ? 1 : 0
-    if (key === 'ars') return s.ars_score ?? -1
-    if (key === 'created') return s.created_at
-    return ''
-  })
+  const sortedScans = dedupeScans(
+    sortRows(recentScans, scanSort.key, scanSort.dir, (s, key) => {
+      if (key === 'hasEmail') return s.email ? 1 : 0
+      if (key === 'ars') return s.ars_score ?? -1
+      if (key === 'created') return s.created_at
+      return ''
+    }),
+    showDuplicateScans,
+  )
+
+  const hiddenDuplicateCount = showDuplicateScans
+    ? 0
+    : recentScans.length -
+      dedupeScans(recentScans, false).length
 
   // ─── Edit client ───
   type EditState = {
@@ -321,6 +368,53 @@ function AdminDashboard() {
       setRowMsg((m) => ({ ...m, [key]: err instanceof Error ? err.message : 'Scan failed' }))
     } finally {
       setBusy(key, null)
+    }
+  }
+
+  async function handleHideScan(scanId: string) {
+    setBusy(scanId, 'Hiding…')
+    try {
+      await hideScan({ data: { scanId } })
+      await router.invalidate()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not hide scan')
+    } finally {
+      setBusy(scanId, null)
+    }
+  }
+
+  async function handleInviteAdmin(e: React.FormEvent) {
+    e.preventDefault()
+    setAdminInviteBusy(true)
+    setAdminInviteErr(null)
+    setAdminInviteMsg(null)
+    try {
+      const result = await inviteAdmin({
+        data: { email: adminInviteEmail.trim(), password: adminInvitePassword },
+      })
+      setAdminInviteMsg(`${result.email} can now sign in at /admin/login.`)
+      setAdminInviteEmail('')
+      setAdminInvitePassword('')
+      await router.invalidate()
+    } catch (err) {
+      setAdminInviteErr(err instanceof Error ? err.message : 'Could not add admin')
+    } finally {
+      setAdminInviteBusy(false)
+    }
+  }
+
+  async function handleRemoveAdmin(userId: string, email: string) {
+    if (!confirm(`Remove admin access for ${email}?`)) return
+    setAdminInviteBusy(true)
+    setAdminInviteErr(null)
+    try {
+      await removeAdmin({ data: { userId } })
+      setAdminInviteMsg(`Removed ${email}.`)
+      await router.invalidate()
+    } catch (err) {
+      setAdminInviteErr(err instanceof Error ? err.message : 'Could not remove admin')
+    } finally {
+      setAdminInviteBusy(false)
     }
   }
 
@@ -1079,9 +1173,21 @@ function AdminDashboard() {
 
       {/* Recent scans */}
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-teal/60 mb-2">
-          Recent Scans ({sortedScans.length})
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-teal/60">
+            Recent Scans ({sortedScans.length}
+            {hiddenDuplicateCount > 0 ? ` · ${hiddenDuplicateCount} duplicate URLs hidden` : ''})
+          </h2>
+          <label className="flex items-center gap-2 text-xs text-teal/70 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showDuplicateScans}
+              onChange={(e) => setShowDuplicateScans(e.target.checked)}
+              className="rounded border-teal/30"
+            />
+            Show duplicate URLs
+          </label>
+        </div>
         <div className="overflow-x-auto border-2 border-teal bg-cream card-shadow">
           <table className="w-full text-sm">
             <thead className="bg-teal text-cream text-xs uppercase">
@@ -1142,17 +1248,35 @@ function AdminDashboard() {
                     <td className="px-4 py-2 text-teal/60">{s.email ? 'Yes' : 'No'}</td>
                     <td className="px-4 py-2 text-teal/60">{fmt(s.created_at)}</td>
                     <td className="px-4 py-2">
-                      <button
-                        type="button"
-                        onClick={() => handleRerunScan(s.url, s.client_id ?? undefined)}
-                        disabled={!!rowBusy[s.client_id ?? s.url]}
-                        className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
-                      >
-                        Duplicate
-                      </button>
-                      {(rowBusy[s.client_id ?? s.url] || rowMsg[s.client_id ?? s.url]) && (
+                      <div className="flex flex-wrap gap-1">
+                        <a
+                          href={`/report/${s.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5"
+                        >
+                          View
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleRerunScan(s.url, s.client_id ?? undefined)}
+                          disabled={!!rowBusy[s.client_id ?? s.url]}
+                          className="text-xs border border-teal/30 text-teal px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
+                        >
+                          Re-scan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleHideScan(s.id)}
+                          disabled={!!rowBusy[s.id]}
+                          className="text-xs border border-teal/30 text-teal/60 px-2 py-1 rounded hover:bg-teal/5 disabled:opacity-50"
+                        >
+                          Hide
+                        </button>
+                      </div>
+                      {(rowBusy[s.client_id ?? s.url] || rowBusy[s.id] || rowMsg[s.client_id ?? s.url]) && (
                         <p className="text-xs text-teal/60 mt-1">
-                          {rowBusy[s.client_id ?? s.url] ?? rowMsg[s.client_id ?? s.url]}
+                          {rowBusy[s.id] ?? rowBusy[s.client_id ?? s.url] ?? rowMsg[s.client_id ?? s.url]}
                         </p>
                       )}
                     </td>
@@ -1163,6 +1287,83 @@ function AdminDashboard() {
           </table>
         </div>
       </section>
+
+      {isSuperAdmin && (
+        <section>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-teal/60 mb-2">
+            Admin access
+          </h2>
+          <div className="border-2 border-teal bg-cream card-shadow p-4 space-y-4">
+            <p className="text-xs text-teal/70">
+              You are the super admin ({superAdminEmail ?? 'ADMIN_USER_ID'}). Add team members who
+              can sign in at <code className="bg-teal/5 px-1">/admin/login</code> — they see the
+              same dashboard but cannot manage other admins.
+            </p>
+
+            {adminInviteErr && (
+              <p className="text-sm text-coral bg-coral/10 border border-coral p-2 rounded">
+                {adminInviteErr}
+              </p>
+            )}
+            {adminInviteMsg && (
+              <p className="text-sm text-teal bg-green/10 border border-green/40 p-2 rounded">
+                {adminInviteMsg}
+              </p>
+            )}
+
+            <ul className="text-sm space-y-2">
+              <li className="flex items-center justify-between gap-2 py-1 border-b border-teal/10">
+                <span>
+                  <strong>{superAdminEmail ?? 'Super admin'}</strong>
+                  <span className="text-xs text-teal/50 ml-2">super admin</span>
+                </span>
+              </li>
+              {adminUsers.map((a) => (
+                <li key={a.user_id} className="flex items-center justify-between gap-2 py-1">
+                  <span>{a.email}</span>
+                  <button
+                    type="button"
+                    disabled={adminInviteBusy}
+                    onClick={() => handleRemoveAdmin(a.user_id, a.email)}
+                    className="text-xs text-coral border border-coral/30 px-2 py-1 rounded hover:bg-coral/5 disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <form onSubmit={(e) => void handleInviteAdmin(e)} className="flex flex-wrap gap-2 items-end pt-2 border-t border-teal/10">
+              <div>
+                <label className="block text-xs text-teal/60 mb-1">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={adminInviteEmail}
+                  onChange={(e) => setAdminInviteEmail(e.target.value)}
+                  className="input-field text-sm min-w-[220px]"
+                  placeholder="teammate@agency.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-teal/60 mb-1">Initial password</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={adminInvitePassword}
+                  onChange={(e) => setAdminInvitePassword(e.target.value)}
+                  className="input-field text-sm min-w-[180px]"
+                  placeholder="Min 8 characters"
+                />
+              </div>
+              <Button type="submit" disabled={adminInviteBusy}>
+                {adminInviteBusy ? 'Adding…' : 'Add admin'}
+              </Button>
+            </form>
+          </div>
+        </section>
+      )}
 
       {/* Profile view / edit panel */}
       {panel && (
