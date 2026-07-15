@@ -864,15 +864,6 @@ export const getClientReportData = createServerFn({ method: 'GET' })
       loadScanFindings(client.post_delivery_scan_id as string | null),
     ])
 
-    const { data: brandRows } = await supabaseAdmin
-      .from('brand_visibility_results')
-      .select('id, phase, prompt, model, mentioned, response_excerpt, notes, created_at')
-      .eq('client_id', data.clientId)
-      .order('created_at', { ascending: false })
-    const rows = (brandRows ?? []) as BrandResultRow[]
-    const baselineBrand = rows.filter((r) => r.phase === 'baseline')
-    const postBrand = rows.filter((r) => r.phase === 'post_delivery')
-
     return {
       ...base,
       mode: 'live' as const,
@@ -882,17 +873,23 @@ export const getClientReportData = createServerFn({ method: 'GET' })
       baselineDate: baseline?.createdAt ?? null,
       postDeliveryDate: post?.createdAt ?? null,
       baselineFindings: baseline
-        ? { topFailures: baseline.topFailures, quickWins: baseline.quickWins }
+        ? {
+            topFailures: baseline.topFailures,
+            quickWins: baseline.quickWins,
+            categories: baseline.categories,
+            siteReadiness: baseline.siteReadiness,
+            discoverabilityScore: baseline.discoverabilityScore,
+          }
         : null,
       postFindings: post
-        ? { topFailures: post.topFailures, quickWins: post.quickWins }
+        ? {
+            topFailures: post.topFailures,
+            quickWins: post.quickWins,
+            categories: post.categories,
+            siteReadiness: post.siteReadiness,
+            discoverabilityScore: post.discoverabilityScore,
+          }
         : null,
-      brand: {
-        baseline: baselineBrand,
-        post: postBrand,
-        baselineSummary: summarizeBrandResults(baselineBrand),
-        postSummary: summarizeBrandResults(postBrand),
-      },
     }
   })
 

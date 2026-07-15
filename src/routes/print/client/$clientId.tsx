@@ -2,6 +2,7 @@ import { createFileRoute, notFound } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { z } from 'zod'
 import { getClientReportData } from '@/lib/admin.functions'
+import { buildPostDeliveryImprovements } from '@/lib/scan-improvements'
 
 export const Route = createFileRoute('/print/client/$clientId')({
   validateSearch: z.object({ snapshot: z.string().uuid().optional() }),
@@ -99,6 +100,77 @@ function Header({
   )
 }
 
+function CategoryTable({
+  categories,
+}: {
+  categories: Array<{ key: string; label: string; score: number | null; finding: string | null }>
+}) {
+  if (!categories.length) return null
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 12 }}>
+      <thead>
+        <tr style={{ background: '#fdf8e1', textAlign: 'left' }}>
+          <th style={{ padding: 8, borderBottom: '1px solid #2a5d6722' }}>Category</th>
+          <th style={{ padding: 8, borderBottom: '1px solid #2a5d6722', width: 56 }}>Score</th>
+          <th style={{ padding: 8, borderBottom: '1px solid #2a5d6722' }}>Finding</th>
+        </tr>
+      </thead>
+      <tbody>
+        {categories.map((c) => (
+          <tr key={c.key}>
+            <td style={{ padding: 8, borderBottom: '1px solid #2a5d6711', textTransform: 'capitalize' }}>
+              {c.label}
+            </td>
+            <td style={{ padding: 8, borderBottom: '1px solid #2a5d6711' }}>{c.score ?? '—'}/25</td>
+            <td style={{ padding: 8, borderBottom: '1px solid #2a5d6711', color: '#2a5d6799' }}>
+              {c.finding ?? '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function ImprovementsList({
+  items,
+}: {
+  items: Array<{ issue: string; howTo: string }>
+}) {
+  if (!items.length) return null
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: '#e8a054' }}>
+        Still to improve — and how
+      </div>
+      <ul style={{ margin: '8px 0 0', paddingLeft: 0, listStyle: 'none' }}>
+        {items.map((item, i) => (
+          <li
+            key={i}
+            style={{
+              marginBottom: 10,
+              padding: 12,
+              borderRadius: 8,
+              background: '#fdf8e1',
+              fontSize: 13,
+              lineHeight: 1.6,
+            }}
+          >
+            <div>
+              <strong style={{ color: '#c0504d' }}>Issue: </strong>
+              {item.issue}
+            </div>
+            <div style={{ marginTop: 4 }}>
+              <strong style={{ color: '#3f7a52' }}>How: </strong>
+              {item.howTo}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function FindingsList({ label, items, color }: { label: string; items: string[]; color: string }) {
   if (!items || items.length === 0) return null
   return (
@@ -151,22 +223,7 @@ function ClientReportPrint() {
 
         <FindingsList label="Top failures" items={report.topFailures} color="#c0504d" />
         <FindingsList label="Quick wins" items={report.quickWins} color="#3f7a52" />
-
-        <h2 style={{ fontSize: 18, fontWeight: 800, marginTop: 32, marginBottom: 8 }}>
-          AI brand visibility
-        </h2>
-        <p style={{ fontSize: 13, color: '#2a5d6799', marginTop: 0 }}>
-          {report.brandMentionCount}/{report.brandModelCount} models mentioned the business.
-        </p>
-        {report.brandResults.length > 0 && (
-          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12, lineHeight: 1.7 }}>
-            {report.brandResults.map((r, i) => (
-              <li key={i}>
-                <strong>{r.mentioned ? '✓' : '✗'} {r.model}</strong> — {r.prompt}
-              </li>
-            ))}
-          </ul>
-        )}
+        <CategoryTable categories={report.categories} />
       </div>
     )
   }
@@ -176,6 +233,10 @@ function ClientReportPrint() {
     report.baselineScore != null && report.postDeliveryScore != null
       ? report.postDeliveryScore - report.baselineScore
       : null
+
+  const postImprovements = report.postFindings
+    ? buildPostDeliveryImprovements(report.postFindings, { hostingAccess: report.hostingAccess })
+    : []
 
   return (
     <div className="print-report">
@@ -244,38 +305,42 @@ function ClientReportPrint() {
           <h2 style={{ fontSize: 18, fontWeight: 800, marginTop: 32, marginBottom: 4 }}>
             What we found (before)
           </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div style={{ padding: 12, borderRadius: 8, background: '#fdf8e1' }}>
+              Site readiness: <strong>{report.baselineFindings.siteReadiness ?? '—'}</strong>/100
+            </div>
+            <div style={{ padding: 12, borderRadius: 8, background: '#fdf8e1' }}>
+              AI discoverability: <strong>{report.baselineFindings.discoverabilityScore ?? '—'}</strong>/100
+            </div>
+          </div>
+          <CategoryTable categories={report.baselineFindings.categories} />
           <FindingsList label="Top failures" items={report.baselineFindings.topFailures} color="#c0504d" />
           <FindingsList label="Quick wins" items={report.baselineFindings.quickWins} color="#3f7a52" />
         </>
       )}
 
-      <h2 style={{ fontSize: 18, fontWeight: 800, marginTop: 32, marginBottom: 12 }}>
-        AI brand mentions
-      </h2>
-      <p style={{ fontSize: 13, color: '#2a5d6799', marginTop: 0 }}>
-        When people ask relevant questions, do ChatGPT, Claude, Gemini, and other models mention this
-        business?
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div style={{ border: '1px solid #2a5d6722', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2a5d6799' }}>
-            Before
+      {report.postFindings && (
+        <>
+          <h2 style={{ fontSize: 18, fontWeight: 800, marginTop: 32, marginBottom: 4 }}>
+            What we found (after)
+          </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div style={{ padding: 12, borderRadius: 8, background: '#fdf8e1' }}>
+              Site readiness: <strong>{report.postFindings.siteReadiness ?? '—'}</strong>/100
+            </div>
+            <div style={{ padding: 12, borderRadius: 8, background: '#fdf8e1' }}>
+              AI discoverability: <strong>{report.postFindings.discoverabilityScore ?? '—'}</strong>/100
+            </div>
           </div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 4 }}>
-            {report.brand.baselineSummary.mentionCount}/{report.brand.baselineSummary.modelCount}
-          </div>
-          <div style={{ fontSize: 12, color: '#2a5d6799' }}>models mentioned you</div>
-        </div>
-        <div style={{ border: '1px solid #89b49455', borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#3f7a52' }}>
-            After
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 4, color: '#3f7a52' }}>
-            {report.brand.postSummary.mentionCount}/{report.brand.postSummary.modelCount}
-          </div>
-          <div style={{ fontSize: 12, color: '#2a5d6799' }}>models mentioned you</div>
-        </div>
-      </div>
+          <CategoryTable categories={report.postFindings.categories} />
+          <FindingsList
+            label="Remaining issues"
+            items={report.postFindings.topFailures}
+            color="#c0504d"
+          />
+          <ImprovementsList items={postImprovements} />
+        </>
+      )}
 
       <h2 style={{ fontSize: 18, fontWeight: 800, marginTop: 32, marginBottom: 12 }}>What we deployed</h2>
       <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.8 }}>

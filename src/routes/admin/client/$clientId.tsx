@@ -21,6 +21,7 @@ import {
 } from '@/lib/admin.functions'
 import type { SurfaceProbeResult } from '@/lib/surface-probe'
 import type { AccessibilityPack } from '@/lib/accessibility-pack'
+import { buildPostDeliveryImprovements } from '@/lib/scan-improvements'
 import { setupCustomHostname, refreshHostnameStatus } from '@/lib/hostname.functions'
 import { Button } from '@/components/ui/Button'
 
@@ -128,6 +129,115 @@ function ScoreChip({
   }
   return (
     <div className="text-center px-4 py-3 bg-cream border border-teal/15 rounded-lg">{inner}</div>
+  )
+}
+
+type ScanFindingsView = NonNullable<Detail['scans']['baseline']>
+
+function ScanFindingsPanel({
+  findings,
+  reportHref,
+  showImprovements,
+  hostingAccess,
+}: {
+  findings: ScanFindingsView
+  reportHref?: string | null
+  showImprovements?: boolean
+  hostingAccess?: boolean
+}) {
+  const improvements = showImprovements
+    ? buildPostDeliveryImprovements(findings, { hostingAccess })
+    : []
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="bg-cream border border-teal/15 rounded p-3">
+          Site readiness: <strong>{findings.siteReadiness ?? '—'}</strong>/100
+        </div>
+        <div className="bg-cream border border-teal/15 rounded p-3">
+          AI discoverability: <strong>{findings.discoverabilityScore ?? '—'}</strong>/100
+        </div>
+      </div>
+      {findings.categories.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border border-teal/15 rounded">
+            <thead>
+              <tr className="bg-cream text-left">
+                <th className="p-2 font-bold text-teal/70">Category</th>
+                <th className="p-2 font-bold text-teal/70 w-16">Score</th>
+                <th className="p-2 font-bold text-teal/70">Finding</th>
+              </tr>
+            </thead>
+            <tbody>
+              {findings.categories.map((c) => (
+                <tr key={c.key} className="border-t border-teal/10">
+                  <td className="p-2 font-semibold capitalize">{c.label}</td>
+                  <td className="p-2">{c.score ?? '—'}/25</td>
+                  <td className="p-2 text-teal/70">{c.finding ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {findings.topFailures.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-coral uppercase tracking-wide">
+            {showImprovements ? 'Remaining issues' : 'Top failures'}
+          </p>
+          <ul className="list-disc pl-5 text-sm text-teal/80 mt-1">
+            {findings.topFailures.map((f, i) => (
+              <li key={i}>{f}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!showImprovements && findings.quickWins.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-green uppercase tracking-wide">Quick wins</p>
+          <ul className="list-disc pl-5 text-sm text-teal/80 mt-1">
+            {findings.quickWins.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {showImprovements && improvements.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-orange uppercase tracking-wide">
+            Still to improve — and how
+          </p>
+          <ul className="mt-2 space-y-3">
+            {improvements.map((item, i) => (
+              <li
+                key={i}
+                className="text-sm bg-cream border border-teal/15 rounded p-3 space-y-1"
+              >
+                <p className="text-teal/90">
+                  <span className="font-semibold text-coral">Issue: </span>
+                  {item.issue}
+                </p>
+                <p className="text-teal/80">
+                  <span className="font-semibold text-green">How: </span>
+                  {item.howTo}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {showImprovements && improvements.length === 0 && findings.score != null && findings.score >= 70 && (
+        <p className="text-sm text-green font-semibold">
+          No major gaps flagged — score is {findings.score}/100. Re-scan after site changes.
+        </p>
+      )}
+      {reportHref && (
+        <a href={reportHref} target="_blank" rel="noreferrer" className="text-xs text-teal underline">
+          View full scan report →
+        </a>
+      )}
+    </div>
   )
 }
 
@@ -271,49 +381,34 @@ function ClientWorkspace() {
           }.`}
         >
           {data.scans.baseline ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-cream border border-teal/15 rounded p-3">
-                  Site readiness: <strong>{data.scans.baseline.siteReadiness ?? '—'}</strong>/100
-                </div>
-                <div className="bg-cream border border-teal/15 rounded p-3">
-                  AI discoverability: <strong>{data.scans.baseline.discoverabilityScore ?? '—'}</strong>/100
-                </div>
-              </div>
-              {data.scans.baseline.categories.length > 0 && (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {data.scans.baseline.categories.map((c) => (
-                    <div key={c.key} className="text-xs bg-cream border border-teal/15 rounded p-2">
-                      <span className="font-semibold capitalize">{c.label}</span>: {c.score ?? '—'}
-                      {c.finding ? <p className="text-teal/70 mt-1">{c.finding}</p> : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {data.scans.baseline.topFailures.length > 0 && (
-                <div>
-                  <p className="text-xs font-bold text-coral uppercase tracking-wide">Top failures</p>
-                  <ul className="list-disc pl-5 text-sm text-teal/80 mt-1">
-                    {data.scans.baseline.topFailures.map((f, i) => (
-                      <li key={i}>{f}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {data.scans.baseline.quickWins.length > 0 && (
-                <div>
-                  <p className="text-xs font-bold text-green uppercase tracking-wide">Quick wins</p>
-                  <ul className="list-disc pl-5 text-sm text-teal/80 mt-1">
-                    {data.scans.baseline.quickWins.map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <ScanFindingsPanel
+              findings={data.scans.baseline}
+              reportHref={`/report/${data.scans.baseline.id}`}
+            />
           ) : (
             <p className="text-sm text-teal/60">
               No baseline scan yet. Run “Re-run baseline scan” above.
+            </p>
+          )}
+        </Section>
+
+        {/* Post-work findings */}
+        <Section
+          title="Post-work findings (post-delivery)"
+          subtitle={`After BotCheck delivery${
+            data.scans.post?.createdAt ? ` · scanned ${fmtDate(data.scans.post.createdAt)}` : ''
+          }.`}
+        >
+          {data.scans.post ? (
+            <ScanFindingsPanel
+              findings={data.scans.post}
+              reportHref={`/report/${data.scans.post.id}`}
+              showImprovements
+              hostingAccess={data.client.hostingAccess}
+            />
+          ) : (
+            <p className="text-sm text-teal/60">
+              No post-delivery scan yet. Deploy surfaces, then run “Run post-delivery scan” above.
             </p>
           )}
         </Section>
